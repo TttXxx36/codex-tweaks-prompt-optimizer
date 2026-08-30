@@ -231,7 +231,11 @@ export function findModelPicker(composer) {
 }
 
 function contextWindowScore(element) {
-  if (!element || isExcludedFromComposer(element)) return -1;
+  if (!element || isExcludedFromComposer(element) || !isElementVisible(element)) return -1;
+  const ariaExpanded = element.getAttribute?.("aria-expanded")?.toLowerCase();
+  const dataOpen = element.getAttribute?.("data-open")?.toLowerCase();
+  const dataState = element.getAttribute?.("data-state")?.toLowerCase();
+  if (ariaExpanded === "false" || dataOpen === "false" || ["closed", "collapsed", "hidden"].includes(dataState)) return -1;
   const role = element.getAttribute?.("role")?.toLowerCase();
   const tagName = element.tagName?.toLowerCase();
   const testId = element.getAttribute?.("data-testid")?.toLowerCase() ?? "";

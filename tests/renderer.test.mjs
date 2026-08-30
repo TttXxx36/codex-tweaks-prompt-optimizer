@@ -237,6 +237,36 @@ test("anchors the optimizer immediately before the Composer context window", () 
   assert.equal(findComposerActionAnchor(composer), contextWindow);
 });
 
+test("falls back to the model picker when the Composer context window is closed", () => {
+  for (const closedMarker of [
+    { "aria-expanded": "false" },
+    { "data-state": "closed" },
+    { "data-open": "false" },
+  ]) {
+    const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+    const contextWindow = new FakeElement("button", {
+      role: "button",
+      "aria-label": "Context window",
+      ...closedMarker,
+    });
+    const modelPicker = new FakeElement("button", {
+      role: "button",
+      "aria-haspopup": "listbox",
+      "aria-label": "5.6 Luna 极高",
+    });
+    const composer = new FakeElement("textarea", { placeholder: "Message", value: "" });
+    composerShell.append(contextWindow, modelPicker, composer);
+    composerShell.querySelectorAll = (selector) => {
+      if (selector.includes("button") || selector.includes("[aria-haspopup]")) {
+        return [contextWindow, modelPicker];
+      }
+      return [];
+    };
+
+    assert.equal(findComposerActionAnchor(composer), modelPicker);
+  }
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
