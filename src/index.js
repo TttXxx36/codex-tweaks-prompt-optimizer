@@ -178,6 +178,10 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const overlayParent = doc.body ?? root;
   const uiRoot = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-ui-root" });
   const composerButtonHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-composer-button-host" });
+  composerButtonHost.style.inset = "0";
+  composerButtonHost.style.pointerEvents = "none";
+  composerButtonHost.style.position = "fixed";
+  composerButtonHost.style.zIndex = "2147482999";
   const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
   const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host", "aria-live": "polite", "aria-atomic": "true" });
   uiRoot.append(composerButtonHost, panelHost, toastHost);
@@ -456,6 +460,10 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         if (state.latestRestoreEntry === entry) state.latestRestoreEntry = null;
         showToast("已恢复本次优化前的原文", "success");
       });
+      restore.hidden = true;
+      restore.style.pointerEvents = "auto";
+      restore.style.position = "fixed";
+      restore.style.zIndex = "2147482999";
       state.composerButtonHost.append(restore);
       entry.restoreButton = restore;
       positionComposerButton(entry);
@@ -559,7 +567,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
   const positionComposerButton = (entry) => {
     const anchorRect = entry.anchor?.getBoundingClientRect?.();
-    if (!anchorRect || !state.composerButtonHost) return false;
+    if (!anchorRect || !state.composerButtonHost) {
+      entry.button.hidden = true;
+      if (entry.restoreButton) entry.restoreButton.hidden = true;
+      return false;
+    }
+    entry.button.style.pointerEvents = "auto";
+    entry.button.style.position = "fixed";
+    entry.button.style.zIndex = "2147482999";
     entry.button.hidden = false;
     const buttonRect = entry.button.getBoundingClientRect?.() ?? {};
     const position = getComposerButtonPosition(anchorRect, buttonRect, viewportSize());
@@ -596,6 +611,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "aria-label": "优化当前提示词",
       title: "优化当前提示词",
       "data-codex-tweaks-prompt-optimizer": "button",
+      hidden: true,
     }, [svgIcon(doc, "spark"), "优化"]);
     const entry = { element: composer, anchor, button, restoreButton: null, operation: null, busy: false };
     button.addEventListener("click", () => startOptimization(entry));

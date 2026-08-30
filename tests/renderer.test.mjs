@@ -272,6 +272,9 @@ test("positions the optimizer in its own overlay instead of mutating the host to
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /composerButtonHost/);
   assert.match(source, /positionComposerButton/);
+  assert.match(source, /composerButtonHost\.style\.position\s*=\s*["']fixed["']/);
+  assert.match(source, /entry\.button\.style\.position\s*=\s*["']fixed["']/);
+  assert.match(source, /hidden:\s*true/);
   assert.doesNotMatch(source, /anchor\.parentElement\.insertBefore\(entry\.button, anchor\)/);
   assert.doesNotMatch(source, /entry\.button\.parentElement\.insertBefore/);
 });
@@ -285,6 +288,21 @@ test("places the overlay button left of and vertically centered on its Composer 
     ),
     { left: 1050, top: 220 },
   );
+});
+
+test("accepts x/y rectangles from host layout shims", () => {
+  assert.deepEqual(
+    getComposerButtonPosition(
+      { x: 1130, y: 220, width: 120, height: 28 },
+      { width: 74, height: 28 },
+      { width: 1500, height: 800 },
+    ),
+    { left: 1050, top: 220 },
+  );
+});
+
+test("does not produce an origin fallback for an unmeasurable anchor", () => {
+  assert.equal(getComposerButtonPosition({}, { width: 74, height: 28 }, { width: 1500, height: 800 }), null);
 });
 
 test("uses the nearest Composer frame for panel anchoring", () => {
