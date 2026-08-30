@@ -1,6 +1,6 @@
 {
   "name": "ct-prompt-optimizer",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "为 Codex Composer 提供隐私边界清晰的提示词优化、预览和澄清工作流。",
   "type": "module",
   "repository": {
