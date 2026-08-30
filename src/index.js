@@ -9,6 +9,7 @@ import {
   findComposerActionAnchor,
   findComposerCandidates,
   findComposerRegion,
+  getComposerButtonPosition,
   isSameComposerContext,
   modelOptionValues,
   readInputText,
@@ -165,6 +166,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     panelDragCleanup: null,
     panelContextCleanup: null,
     uiRoot: null,
+    composerButtonHost: null,
     notice: { text: "", kind: "" },
     scanTimer: null,
     observer: null,
@@ -175,11 +177,13 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   root.setAttribute(ROOT_ATTRIBUTE, "");
   const overlayParent = doc.body ?? root;
   const uiRoot = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-ui-root" });
+  const composerButtonHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-composer-button-host" });
   const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
   const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host", "aria-live": "polite", "aria-atomic": "true" });
-  uiRoot.append(panelHost, toastHost);
+  uiRoot.append(composerButtonHost, panelHost, toastHost);
   overlayParent.append(uiRoot);
   state.uiRoot = uiRoot;
+  state.composerButtonHost = composerButtonHost;
   state.panelHost = panelHost;
 
   const setNotice = (text, kind = "") => {
@@ -430,7 +434,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const ensureRestoreButton = (entry, snapshot) => {
-    if (!entry?.button?.parentElement || !snapshot) return;
+    if (!entry?.button || !state.composerButtonHost || !snapshot) return;
     if (state.latestRestoreEntry && state.latestRestoreEntry !== entry) {
       state.latestRestoreEntry.restoreButton?.remove();
       state.latestRestoreEntry.restoreButton = null;
@@ -452,8 +456,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         if (state.latestRestoreEntry === entry) state.latestRestoreEntry = null;
         showToast("已恢复本次优化前的原文", "success");
       });
-      entry.button.parentElement.insertBefore(restore, entry.button.nextSibling);
+      state.composerButtonHost.append(restore);
       entry.restoreButton = restore;
+      positionComposerButton(entry);
     }
   };
 
@@ -552,12 +557,33 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const placeComposerButton = (entry, anchor) => {
-    if (!anchor?.parentElement) return false;
-    anchor.parentElement.insertBefore(entry.button, anchor);
-    if (entry.restoreButton) entry.button.parentElement.insertBefore(entry.restoreButton, entry.button.nextSibling);
-    entry.anchor = anchor;
+  const positionComposerButton = (entry) => {
+    const anchorRect = entry.anchor?.getBoundingClientRect?.();
+    if (!anchorRect || !state.composerButtonHost) return false;
+    entry.button.hidden = false;
+    const buttonRect = entry.button.getBoundingClientRect?.() ?? {};
+    const position = getComposerButtonPosition(anchorRect, buttonRect, viewportSize());
+    if (!position) {
+      entry.button.hidden = true;
+      if (entry.restoreButton) entry.restoreButton.hidden = true;
+      return false;
+    }
+    entry.button.style.left = `${position.left}px`;
+    entry.button.style.top = `${position.top}px`;
+    if (entry.restoreButton) {
+      entry.restoreButton.hidden = false;
+      entry.restoreButton.style.left = `${position.left + (Number(buttonRect.width) || 0) + 4}px`;
+      entry.restoreButton.style.top = `${position.top}px`;
+    }
     return true;
+  };
+
+  const placeComposerButton = (entry, anchor) => {
+    if (!anchor?.parentElement || !state.composerButtonHost) return false;
+    if (entry.button.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.button);
+    if (entry.restoreButton && entry.restoreButton.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.restoreButton);
+    entry.anchor = anchor;
+    return positionComposerButton(entry);
   };
 
   const attachComposer = (composer) => {
@@ -596,6 +622,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       else {
         const nextAnchor = findComposerActionAnchor(entry.element);
         if (nextAnchor && nextAnchor !== entry.anchor) placeComposerButton(entry, nextAnchor);
+        else if (nextAnchor) positionComposerButton(entry);
+        else {
+          entry.button.hidden = true;
+          if (entry.restoreButton) entry.restoreButton.hidden = true;
+        }
       }
     }
     for (const composer of findComposerCandidates(doc)) attachComposer(composer);
@@ -604,6 +635,21 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const scheduleScan = () => {
     if (state.scanTimer || state.disposed) return;
     state.scanTimer = setTimeout(scanComposers, 120);
+  };
+
+  const reflowComposerButtons = () => {
+    if (state.disposed) return;
+    for (const entry of state.attached.values()) {
+      const nextAnchor = findComposerActionAnchor(entry.element);
+      if (!nextAnchor) {
+        entry.button.hidden = true;
+        if (entry.restoreButton) entry.restoreButton.hidden = true;
+      } else if (nextAnchor !== entry.anchor) {
+        placeComposerButton(entry, nextAnchor);
+      } else {
+        positionComposerButton(entry);
+      }
+    }
   };
 
   const renderHistory = (view, list) => {
@@ -1188,7 +1234,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (state.scanTimer) clearTimeout(state.scanTimer);
     if (state.toastTimer) clearTimeout(state.toastTimer);
     doc.defaultView?.removeEventListener("resize", reflowPanel);
+    doc.defaultView?.removeEventListener("resize", reflowComposerButtons);
     doc.removeEventListener("scroll", reflowPanel, true);
+    doc.removeEventListener("scroll", reflowComposerButtons, true);
     doc.removeEventListener("keydown", onDocumentKeyDown);
     state.toastTimer = null;
     for (const entry of [...state.attached.values()]) detachComposer(entry);
@@ -1205,9 +1253,13 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   doc.defaultView?.addEventListener("resize", reflowPanel);
+  doc.defaultView?.addEventListener("resize", reflowComposerButtons);
   doc.addEventListener("scroll", reflowPanel, true);
+  doc.addEventListener("scroll", reflowComposerButtons, true);
   doc.addEventListener("keydown", onDocumentKeyDown);
-  state.observer = new MutationObserver(() => scheduleScan());
+  state.observer = new MutationObserver((records) => {
+    if (records.some(({ target }) => !uiRoot.contains(target))) scheduleScan();
+  });
   state.observer.observe(doc.body ?? root, {
     childList: true,
     subtree: true,
@@ -1217,12 +1269,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "aria-hidden",
       "aria-label",
       "aria-haspopup",
+      "class",
       "data-composer-placement",
       "data-open",
       "data-state",
       "data-testid",
       "hidden",
       "role",
+      "style",
       "title",
     ],
   });

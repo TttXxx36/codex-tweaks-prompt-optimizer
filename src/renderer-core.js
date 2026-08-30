@@ -257,7 +257,7 @@ function contextWindowScore(element) {
 function findComposerContextWindow(composer) {
   const region = findComposerRegion(composer);
   const controls = [...(region?.querySelectorAll?.(
-    "button, [role=button], [role=combobox], [aria-haspopup], [aria-label], [title], [data-testid], select",
+    "button, [role=button], [role=combobox], [aria-haspopup], [aria-label], [title], [data-testid], [data-context-window], [data-context], [data-background-info], [class*=context-window], [class*=context_window], [class*=contextWindow], [class*=background-info], [class*=background_info], select",
   ) ?? [])];
   return controls
     .map((control) => ({ control, score: contextWindowScore(control) }))
@@ -288,4 +288,25 @@ export function findComposerActionAnchor(composer) {
   if (modelPicker?.parentElement) return modelPicker;
   const submitControl = findComposerControl(composer, "button, [role=button]", isComposerSubmitControl);
   return submitControl?.parentElement ? submitControl : null;
+}
+
+export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport = {}, gap = 6) {
+  const left = Number(anchorRect?.left);
+  const top = Number(anchorRect?.top);
+  const anchorHeight = Number.isFinite(Number(anchorRect?.height))
+    ? Number(anchorRect.height)
+    : Number(anchorRect?.bottom) - top;
+  const buttonWidth = Math.max(0, Number(buttonRect?.width) || 0);
+  const buttonHeight = Math.max(0, Number(buttonRect?.height) || 0);
+  const viewportWidth = Number(viewport?.width);
+  const viewportHeight = Number(viewport?.height);
+  if (![left, top, anchorHeight].every(Number.isFinite)) return null;
+  const requestedLeft = left - buttonWidth - Number(gap || 0);
+  const maxLeft = Number.isFinite(viewportWidth) ? Math.max(4, viewportWidth - buttonWidth - 4) : requestedLeft;
+  const requestedTop = top + (anchorHeight - buttonHeight) / 2;
+  const maxTop = Number.isFinite(viewportHeight) ? Math.max(4, viewportHeight - buttonHeight - 4) : requestedTop;
+  return {
+    left: Math.round(Math.min(Math.max(4, requestedLeft), maxLeft)),
+    top: Math.round(Math.min(Math.max(4, requestedTop), maxTop)),
+  };
 }

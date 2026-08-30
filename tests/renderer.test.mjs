@@ -6,6 +6,7 @@ import {
   findComposerActionAnchor,
   findComposerCandidates,
   findComposerRegion,
+  getComposerButtonPosition,
   findModelPicker,
   isComposerCandidate,
   isSameComposerContext,
@@ -267,6 +268,25 @@ test("falls back to the model picker when the Composer context window is closed"
   }
 });
 
+test("positions the optimizer in its own overlay instead of mutating the host toolbar", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /composerButtonHost/);
+  assert.match(source, /positionComposerButton/);
+  assert.doesNotMatch(source, /anchor\.parentElement\.insertBefore\(entry\.button, anchor\)/);
+  assert.doesNotMatch(source, /entry\.button\.parentElement\.insertBefore/);
+});
+
+test("places the overlay button left of and vertically centered on its Composer anchor", () => {
+  assert.deepEqual(
+    getComposerButtonPosition(
+      { left: 1130, top: 220, height: 28 },
+      { width: 74, height: 28 },
+      { width: 1500, height: 800 },
+    ),
+    { left: 1050, top: 220 },
+  );
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
@@ -310,10 +330,12 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
-  assert.match(source, /attributeFilter:\s*\[[\s\S]*"aria-expanded",[\s\S]*"aria-hidden",[\s\S]*"data-open",[\s\S]*"data-state",[\s\S]*"hidden",[\s\S]*\]/);
+  assert.match(source, /attributeFilter:\s*\[[\s\S]*"aria-expanded",[\s\S]*"aria-hidden",[\s\S]*"class",[\s\S]*"data-open",[\s\S]*"data-state",[\s\S]*"hidden",[\s\S]*"style",[\s\S]*\]/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /placeComposerButton/);
+  assert.match(source, /reflowComposerButtons/);
+  assert.match(source, /records\.some\(\(\{ target \}\) => !uiRoot\.contains\(target\)\)/);
   assert.match(source, /nextAnchor && nextAnchor !== entry\.anchor/);
   assert.match(source, /data-ctpo-drag-handle/);
   assert.match(source, /ResizeObserver/);

@@ -90,6 +90,19 @@
   border-color: color-mix(in srgb, currentColor 18%, transparent);
 }
 
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 2147482999;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host > .ct-prompt-optimizer-button,
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host > .ct-prompt-optimizer-restore {
+  pointer-events: auto;
+  position: absolute;
+}
+
 .ct-prompt-optimizer-button[data-busy="true"] {
   color: var(--ctpo-accent, #2563eb);
 }
