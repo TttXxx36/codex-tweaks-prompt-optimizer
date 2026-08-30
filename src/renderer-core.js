@@ -137,7 +137,7 @@ export function findComposerCandidates(scope) {
 
 function composerScore(element) {
   let score = 0;
-  const ancestor = element.closest?.("[data-composer], [data-testid*=composer], form");
+  const ancestor = element.closest?.("[data-composer], [data-composer-placement], [data-testid*=composer], form");
   if (ancestor) score += 4;
   const placeholder = `${element.getAttribute?.("placeholder") ?? ""} ${element.getAttribute?.("aria-label") ?? ""}`.toLowerCase();
   if (/message|prompt|输入|消息|composer/.test(placeholder)) score += 3;
@@ -149,25 +149,42 @@ export function findBestComposer(scope) {
   return findComposerCandidates(scope)[0] ?? null;
 }
 
-export function isModelPickerControl(element) {
-  if (!element || isExcludedFromComposer(element)) return false;
+function modelPickerScore(element) {
+  if (!element || isExcludedFromComposer(element)) return -1;
   const role = element.getAttribute?.("role")?.toLowerCase();
   const tagName = element.tagName?.toLowerCase();
-  if (role === "combobox" || tagName === "select") return true;
   const ariaHasPopup = element.getAttribute?.("aria-haspopup")?.toLowerCase();
+  const testId = element.getAttribute?.("data-testid")?.toLowerCase() ?? "";
   const label = [
     element.getAttribute?.("aria-label"),
     element.getAttribute?.("title"),
     element.textContent,
-    element.getAttribute?.("data-testid"),
+    testId,
   ].filter(Boolean).join(" ").toLowerCase();
-  const controlLike = tagName === "button" || role === "button" || role === "combobox";
+  if (/project|项目|workspace|工作区|repository|repo|仓库/.test(label)) return -1;
   const hasModelLabel = /model|模型|gpt|claude|codex|agent|代理/.test(label);
+  const hasModelVersion = /\b\d+(?:\.\d+){1,2}\b/.test(label);
   const hasCompactModelValue = /^(auto|automatic|自动)$/.test(label.trim());
-  const hasExplicitModelTestId = /model|模型/.test(element.getAttribute?.("data-testid")?.toLowerCase() ?? "");
-  if (["listbox", "menu"].includes(ariaHasPopup) && (hasModelLabel || hasCompactModelValue || hasExplicitModelTestId)) return true;
-  if (!controlLike && !hasExplicitModelTestId) return false;
-  return hasModelLabel || hasCompactModelValue;
+  const hasExplicitModelTestId = /model|模型/.test(testId);
+  const hasModelIdentity = tagName === "select"
+    || hasModelLabel
+    || hasModelVersion
+    || hasCompactModelValue
+    || hasExplicitModelTestId;
+  if (!hasModelIdentity) return -1;
+  if (tagName !== "select" && role !== "button" && role !== "combobox" && !["listbox", "menu"].includes(ariaHasPopup)) return -1;
+  let score = tagName === "select" ? 4 : 1;
+  if (role === "combobox") score += 2;
+  if (["listbox", "menu"].includes(ariaHasPopup)) score += 2;
+  if (hasExplicitModelTestId) score += 8;
+  if (hasModelLabel) score += 8;
+  if (hasModelVersion) score += 7;
+  if (hasCompactModelValue) score += 6;
+  return score;
+}
+
+export function isModelPickerControl(element) {
+  return modelPickerScore(element) > 0;
 }
 
 function isComposerRegion(element) {
@@ -195,11 +212,14 @@ function findComposerControl(composer, selector, matches) {
 }
 
 export function findModelPicker(composer) {
-  return findComposerControl(
-    composer,
+  const region = findComposerRegion(composer);
+  const controls = [...(region?.querySelectorAll?.(
     "button, [role=button], [role=combobox], [aria-haspopup], [data-testid*=model], select",
-    isModelPickerControl,
-  );
+  ) ?? [])];
+  return controls
+    .map((control) => ({ control, score: modelPickerScore(control) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.control ?? null;
 }
 
 function isComposerSubmitControl(element) {
