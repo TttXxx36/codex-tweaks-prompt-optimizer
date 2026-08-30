@@ -1,0 +1,44 @@
+name: Publish v0.1.8
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.head_commit.message == 'Trigger v0.1.8 release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: 'v0.1.8',
+              target_commitish: 'a977c0d6c5ec94d1d50066e2b1906ffdf93383e4',
+              name: 'v0.1.8',
+              body: [
+                '## 修复',
+                '',
+                '- 修复 Codex、Work 和 ChatGPT Composer 中优化按钮的常驻显示与模型选择器左侧定位。',
+                '- 修复获取模型成功但设置页无法显示和选择模型的问题。',
+                '- 设置页保留手动填写模型名称，同时新增可见的已获取模型下拉框。',
+                '- 对齐 package.json 与 Node User-Agent 的 0.1.8 版本号。',
+                '',
+                '## 验证',
+                '',
+                '- npm test：32/32 通过。',
+                '- npm run check：通过。',
+                '- git diff --check：通过。'
+              ].join('\n'),
+              draft: false,
+              prerelease: false,
+              generate_release_notes: false
+            });
