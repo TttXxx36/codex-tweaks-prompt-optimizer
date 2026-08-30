@@ -279,6 +279,11 @@ test("positions the optimizer in its own overlay instead of mutating the host to
   assert.doesNotMatch(source, /entry\.button\.parentElement\.insertBefore/);
 });
 
+test("marks the settings UI extension optional for hosts without the adapter", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.codexTweaks?.ui?.settingsSections?.required, false);
+});
+
 test("places the overlay button left of and vertically centered on its Composer anchor", () => {
   assert.deepEqual(
     getComposerButtonPosition(
