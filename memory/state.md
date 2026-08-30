@@ -1,6 +1,6 @@
 # Session state (Shisan Xinuo Agent Workflow)
 
-- Current goal: 修复 settingsSections 必需扩展导致的功能包启动失败。
-- Decisions made: 设置页不是 Composer/Node 功能运行的必要条件，manifest 显式声明 `settingsSections.required: false`；Renderer 缺少设置扩展时只跳过设置注册，不改动 Node RPC 和网络协议。
-- Constraints: 获取到的全部模型必须可见可选；手动输入仍可用；模型列表只保留当前页面生命周期，不写入 Provider 配置；本次不改动 Codex 主程序，不触碰 GitHub Release。
-- Progress + next step: 已完成日志根因核对、manifest 可选扩展修复、失败用例先红后绿及全量验证，并通过 GitHub API 同步到 `main` 提交 `e28d0f9`；待用户在实际 Codex 中停用/重载功能包确认启动不再循环，未创建新 Release。
+- Current goal: 修复 Codex Tweaks 在 optional settings adapter 不可用时每 2 秒重复注入的宿主级启动循环。
+- Decisions made: 保留提示词包的 `settingsSections.required: false`，因为它已经消除旧的必需扩展错误；不以删除提示词包设置入口或回退该字段掩盖宿主循环。
+- Constraints: 当前提示词包和 `ct-custom-background` 都声明 optional settings；根治涉及 Codex Tweaks 宿主实现、构建和安装，属于单独的架构/外部协作决策，需用户确认后才执行。
+- Progress + next step: 已以本机 active build、历史日志和上游宿主源码完成差分诊断：旧错误 5 次，新 active build 为 0 次；宿主 monitor 每 2 秒轮询且把 optional section 当作 adapter readiness 前提。待用户确认是否授权准备/提交宿主修复；未创建新 Release。

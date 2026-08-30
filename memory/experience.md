@@ -19,6 +19,6 @@
 ## Required UI extension 导致宿主启动失败
 
 - Symptom: 日志出现 `Required UI extension unavailable: ui.settingsSections`，Codex 启动卡住并周期性黑屏重载，功能包无法进入 Renderer。
-- Root cause: API v3 的 `codexTweaks.ui.settingsSections` 默认 `required` 为 `true`；声明了设置入口但没有明确标记可选时，宿主在调用包 `activate()` 之前就会因当前 UI 适配器缺失而拒绝创建扩展。
-- Fix: 当设置页不是包运行必需条件时，在 manifest 中设置 `settingsSections.required: false`；Renderer 继续通过可选链检查 `ui.settingsSections.register`，缺失时跳过设置入口但保留 Composer/Node 功能。
-- Prevention: manifest 回归测试必须解析 `package.json` 并断言可降级 UI 扩展为 `required: false`；不要用 Node 权限或私有 DOM bridge 绕过宿主 UI 能力差异。
+- Root cause: 第一层是 API v3 的 `codexTweaks.ui.settingsSections` 默认 `required` 为 `true`；未明确标记可选时，宿主会在调用包 `activate()` 前拒绝创建扩展。第二层是宿主运行时缺陷：它每 2 秒轮询，并在设置模块适配失败时，即便所有声明都为可选，仍以“存在 settings section”为条件判定运行时未就绪，因而反复清理和注入整个 Codex 页面。
+- Fix: 包 manifest 保留 `settingsSections.required: false`，避免第一层错误；根治需在 Codex Tweaks 宿主中区分“存在设置页”和“设置页为必需”，只有任一声明为必需时才要求 `settingsAdapterReady`，可选设置页适配失败后不得触发重复注入。
+- Prevention: manifest 回归测试必须解析 `package.json` 并断言可降级 UI 扩展为 `required: false`；宿主注入测试必须覆盖“适配器不可用 + 全部 optional”并断言第二次轮询为 unchanged；不要用 Node 权限或私有 DOM bridge 绕过宿主 UI 能力差异。
