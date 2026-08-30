@@ -131,12 +131,14 @@ function errorFromNodeResponse(response) {
 }
 
 function createPanelLayout(layout = {}) {
+  const hasWidth = Number.isFinite(Number(layout.width));
   return {
     left: Number.isFinite(Number(layout.left)) ? Number(layout.left) : null,
     top: Number.isFinite(Number(layout.top)) ? Number(layout.top) : null,
-    width: Number.isFinite(Number(layout.width)) ? Number(layout.width) : PANEL_DEFAULT_WIDTH,
+    width: hasWidth ? Number(layout.width) : null,
     height: Number.isFinite(Number(layout.height)) ? Number(layout.height) : PANEL_DEFAULT_HEIGHT,
     manual: layout.manual === true,
+    autoWidth: layout.autoWidth === true || (!hasWidth && layout.autoWidth !== false),
   };
 }
 
@@ -289,10 +291,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     return !context || isSameComposerContext(context, context.element, currentLocationHref(context.element));
   };
 
-  const readPanelSize = (panel, layout) => {
+  const readPanelSize = (panel, layout, anchor) => {
     const rect = panel.getBoundingClientRect?.();
+    const anchorWidth = anchor ? anchor.right - anchor.left : 0;
     return normalizePanelSize(
-      rect?.width || layout.width,
+      layout.autoWidth && anchorWidth > 0 ? anchorWidth : (rect?.width || layout.width),
       rect?.height || layout.height,
       viewportSize(),
     );
@@ -301,12 +304,13 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const applyPanelGeometry = (panel, panelState, { preservePosition = false } = {}) => {
     if (!panel || !panelState) return;
     const layout = panelState.layout ?? createPanelLayout();
-    const size = readPanelSize(panel, layout);
+    const anchor = panelAnchorRect(panelState);
+    const size = readPanelSize(panel, layout, anchor);
     const preferred = preservePosition && Number.isFinite(layout.left) && Number.isFinite(layout.top)
       ? { left: layout.left, top: layout.top }
       : null;
     const position = findPanelPosition({
-      anchor: panelAnchorRect(panelState),
+      anchor,
       width: size.width,
       height: size.height,
       viewport: viewportSize(),
@@ -391,6 +395,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (typeof ResizeObserverCtor === "function") {
       state.panelResizeObserver = new ResizeObserverCtor(() => {
         if (state.panel !== panelState) return;
+        const rect = panel.getBoundingClientRect?.();
+        const previousWidth = Number(panelState.layout?.width);
+        if (Number.isFinite(rect?.width) && Number.isFinite(previousWidth) && Math.abs(rect.width - previousWidth) > 0.5) {
+          panelState.layout = { ...panelState.layout, autoWidth: false };
+        }
         applyPanelGeometry(panel, panelState, { preservePosition: true });
       });
       state.panelResizeObserver.observe(panel);
@@ -620,7 +629,26 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const buildSettingsView = (container) => {
-    const view = { id: makeId("settings"), container, status: null, modelOptions: [], keyVisible: false, busy: false, render: null };
+    const view = {
+      id: makeId("settings"),
+      container,
+      status: null,
+      saveFeedback: null,
+      inlineNotice: { text: "", kind: "" },
+      modelOptions: [],
+      keyDraft: "",
+      keyVisible: false,
+      busy: false,
+      render: null,
+    };
+    const setInlineNotice = (text, kind = "") => {
+      view.inlineNotice = { text, kind };
+      if (view.saveFeedback) {
+        view.saveFeedback.textContent = text;
+        view.saveFeedback.dataset.kind = kind;
+      }
+      if (state.notice.text) setNotice("");
+    };
     container.setAttribute(ROOT_ATTRIBUTE, "");
     view.render = () => {
       if (state.disposed) return;
@@ -670,10 +698,12 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       grid.append(field(doc, "API 地址", baseUrl, "远程服务必须使用 HTTPS；localhost、127.0.0.1 和 ::1 可使用 HTTP。"));
 
       const keyInput = element(doc, "input", { id: createSettingsId(view, "api-key"), type: view.keyVisible ? "text" : "password", autocomplete: "new-password", placeholder: settings.apiKeyConfigured ? "已配置，留空表示保持不变" : "输入 API Key" });
+      keyInput.value = view.keyDraft;
+      keyInput.addEventListener("input", () => { view.keyDraft = keyInput.value; });
       const keyToggle = actionButton(doc, view.keyVisible ? "隐藏" : "显示", "toggle-key", { icon: "eye", title: "显示或隐藏 API Key" });
       keyToggle.addEventListener("click", () => { view.keyVisible = !view.keyVisible; view.render(); });
       const keyLine = element(doc, "div", { className: "ctpo-inline" }, [keyInput, keyToggle]);
-      grid.append(field(doc, "API Key", keyLine, "界面默认遮蔽；此包不宣称操作系统级加密。"));
+      grid.append(field(doc, "API Key", keyLine, "界面默认遮蔽；显示/隐藏只作用于当前输入草稿，已保存 Key 不回显。此包不宣称操作系统级加密。"));
 
       const modelInput = element(doc, "input", { id: createSettingsId(view, "model"), list: createSettingsId(view, "model-list"), type: "text", autocomplete: "off", placeholder: "例如 gpt-5.6" });
       modelInput.value = settings.model;
@@ -683,14 +713,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const modelsButton = actionButton(doc, "获取模型", "list-models", { icon: "refresh", title: "请求 Provider 的模型列表" });
       modelsButton.addEventListener("click", async () => {
         setViewBusy(view, true);
-        setNotice("正在获取模型列表……");
+        setInlineNotice("正在获取模型列表……");
         try {
-          const response = await callNode("list-models", { settings: { ...state.settings, apiKey: keyInput.value } });
+          const response = await callNode("list-models", { settings: { ...state.settings, apiKey: view.keyDraft } });
           view.modelOptions = Array.isArray(response.models) ? response.models : [];
-          setNotice(`已获取 ${view.modelOptions.length} 个模型。`, "success");
+          setInlineNotice(`已获取 ${view.modelOptions.length} 个模型。`, "success");
           view.render();
         } catch (error) {
-          setNotice(`${error.message} 仍可手动填写模型名称。`, "error");
+          setInlineNotice(`${error.message} 仍可手动填写模型名称。`, "error");
         } finally {
           setViewBusy(view, false);
         }
@@ -720,15 +750,16 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const save = actionButton(doc, "保存配置", "save", { icon: "check", kind: "primary" });
       save.addEventListener("click", async () => {
         setViewBusy(view, true);
-        setNotice("正在保存配置……");
+        setInlineNotice("正在保存配置……");
         try {
-          const response = await callNode("save-settings", { settings: { ...state.settings, apiKey: keyInput.value } });
+          const response = await callNode("save-settings", { settings: { ...state.settings, apiKey: view.keyDraft } });
           state.settings = { ...RENDERER_DEFAULTS, ...response.settings, apiKey: "" };
-          setNotice("配置已保存。", "success");
+          view.keyDraft = "";
+          setInlineNotice("配置已保存。", "success");
           view.render();
           scheduleScan();
         } catch (error) {
-          setNotice(error.message, "error");
+          setInlineNotice(error.message, "error");
         } finally {
           setViewBusy(view, false);
         }
@@ -736,13 +767,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const clearKey = actionButton(doc, "清除 Key", "clear-key", { icon: "trash", kind: "danger" });
       clearKey.addEventListener("click", async () => {
         setViewBusy(view, true);
+        setInlineNotice("正在清除 API Key……");
         try {
           const response = await callNode("clear-api-key");
           state.settings = { ...state.settings, ...response.settings };
-          setNotice("API Key 已清除。", "success");
+          view.keyDraft = "";
+          setInlineNotice("API Key 已清除。", "success");
           view.render();
         } catch (error) {
-          setNotice(error.message, "error");
+          setInlineNotice(error.message, "error");
         } finally {
           setViewBusy(view, false);
         }
@@ -750,18 +783,21 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const test = actionButton(doc, "测试连接", "test", { icon: "check" });
       test.addEventListener("click", async () => {
         setViewBusy(view, true);
-        setNotice("正在测试连接……");
+        setInlineNotice("正在测试连接……");
         try {
-          await callNode("test-connection", { settings: { ...state.settings, apiKey: keyInput.value } });
-          setNotice("连接成功。草稿配置未写入磁盘。", "success");
+          await callNode("test-connection", { settings: { ...state.settings, apiKey: view.keyDraft } });
+          setInlineNotice("连接成功。草稿配置未写入磁盘。", "success");
         } catch (error) {
-          setNotice(error.message, "error");
+          setInlineNotice(error.message, "error");
         } finally {
           setViewBusy(view, false);
         }
       });
       actions.append(save, clearKey, test);
-      providerCard.append(actions);
+      const saveFeedback = element(doc, "div", { className: "ctpo-status ctpo-inline-status", role: "status", "aria-live": "polite" }, [view.inlineNotice.text]);
+      saveFeedback.dataset.kind = view.inlineNotice.kind;
+      view.saveFeedback = saveFeedback;
+      providerCard.append(actions, saveFeedback);
       wrapper.append(providerCard);
 
       const historyCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-history` });

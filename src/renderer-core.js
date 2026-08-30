@@ -154,13 +154,20 @@ export function isModelPickerControl(element) {
   const role = element.getAttribute?.("role")?.toLowerCase();
   const tagName = element.tagName?.toLowerCase();
   if (role === "combobox" || tagName === "select") return true;
+  const ariaHasPopup = element.getAttribute?.("aria-haspopup")?.toLowerCase();
   const label = [
     element.getAttribute?.("aria-label"),
     element.getAttribute?.("title"),
     element.textContent,
     element.getAttribute?.("data-testid"),
   ].filter(Boolean).join(" ").toLowerCase();
-  return /model|模型|gpt|claude|codex|agent|代理/.test(label) && (tagName === "button" || role === "button" || role === "combobox");
+  const controlLike = tagName === "button" || role === "button" || role === "combobox";
+  if (!controlLike) return false;
+  const hasModelLabel = /model|模型|gpt|claude|codex|agent|代理/.test(label);
+  const hasCompactModelValue = /^(auto|automatic|自动)$/.test(label.trim());
+  if (ariaHasPopup === "listbox") return true;
+  if (ariaHasPopup === "menu" && (hasModelLabel || hasCompactModelValue)) return true;
+  return hasModelLabel || hasCompactModelValue;
 }
 
 export function findModelPicker(composer) {

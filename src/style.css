@@ -125,7 +125,7 @@
   margin: 0 auto;
   min-height: 100%;
   padding: 24px 28px 44px;
-  width: min(100%, 720px);
+  width: min(100%, 760px);
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-pane-header {
@@ -304,6 +304,10 @@
   color: var(--ctpo-success);
 }
 
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-inline-status {
+  margin-top: 6px;
+}
+
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-toast-host {
   bottom: 16px;
   display: flex;
@@ -433,7 +437,8 @@
   color: var(--ctpo-text);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  height: 420px;
+  font: inherit;
+  height: 360px;
   max-height: calc(100vh - 24px);
   max-width: calc(100vw - 24px);
   min-height: min(240px, calc(100vh - 24px));
@@ -452,8 +457,8 @@
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  min-height: 32px;
-  padding: 8px 12px;
+  min-height: 30px;
+  padding: 6px 10px;
   touch-action: none;
   user-select: none;
 }
@@ -463,7 +468,7 @@
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel h2 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
   margin: 0;
@@ -476,11 +481,11 @@
   border-radius: 6px;
   color: var(--ctpo-muted);
   display: inline-flex;
-  height: 28px;
+  height: 26px;
   justify-content: center;
-  min-height: 28px;
-  min-width: 28px;
-  padding: 6px;
+  min-height: 26px;
+  min-width: 26px;
+  padding: 5px;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-close:hover {
@@ -491,10 +496,10 @@
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   overflow: auto;
-  padding: 12px 14px 0;
+  padding: 10px 12px 0;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-preview {
@@ -539,7 +544,7 @@
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-content > .ctpo-label {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -550,21 +555,30 @@
   color: var(--ctpo-muted);
   max-height: 130px;
   overflow: auto;
-  padding: 10px;
+  font-size: 12px;
+  padding: 8px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-content #ctpo-preview-result {
   flex: 1 1 auto;
-  min-height: 160px;
+  font-size: 12px;
+  min-height: 140px;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel-actions {
   background: var(--ctpo-bg);
   border-top: 1px solid var(--ctpo-border);
   margin: 0;
-  padding: 10px 14px 12px;
+  gap: 6px;
+  padding: 8px 12px 9px;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-panel .ctpo-button {
+  font-size: 12px;
+  min-height: 30px;
+  padding: 5px 9px;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-question {

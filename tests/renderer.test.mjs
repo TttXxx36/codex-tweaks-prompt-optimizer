@@ -119,6 +119,17 @@ test("places model control lookup within composer ancestors and preserves contex
   assert.equal(isSameComposerContext(context, composer, context.href, "原文"), false);
 });
 
+test("recognizes the Auto listbox model selector used by Codex and Work composers", () => {
+  const toolbar = new FakeElement("div", { "data-composer": "true" });
+  const picker = new FakeElement("button", { role: "button", "aria-haspopup": "listbox", "aria-label": "Auto" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  toolbar.append(picker, composer);
+  toolbar.querySelectorAll = (selector) => selector.includes("button") ? [picker] : [];
+
+  assert.equal(findModelPicker(composer), picker);
+  assert.equal(findComposerActionAnchor(composer), picker);
+});
+
 test("uses the submit action when a Codex or Work composer has no model picker", () => {
   const composerShell = new FakeElement("form", { "data-composer": "true" });
   const composer = new FakeElement("div", {
@@ -188,14 +199,24 @@ test("preview geometry prefers the space above Composer, then avoids overlap and
   });
   assert.deepEqual(preferred, { left: 20, top: 20 });
   assert.deepEqual(normalizePanelSize(1000, 1000, { width: 640, height: 480 }), { width: 616, height: 456 });
+  assert.equal(normalizePanelSize(undefined, undefined, { width: 900, height: 700 }).height, 360);
 });
 
 test("settings stylesheet centers the pane and follows Codex light and dark host classes", async () => {
   const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
-  assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*720px\);)(?=[^}]*margin:\s*0 auto;)/s);
+  assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*760px\);)(?=[^}]*margin:\s*0 auto;)/s);
   assert.match(css, /:root:not\(\.electron-light\)\s+\[data-codex-tweaks-ct-prompt-optimizer\]/);
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
   assert.match(css, /\.ctpo-panel-preview\s*\{(?=[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\);)/s);
+});
+
+test("settings keeps API key drafts across visibility toggles and renders save feedback beside actions", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /keyDraft/);
+  assert.match(source, /keyInput\.addEventListener\("input", \(\) => \{ view\.keyDraft = keyInput\.value; \}\)/);
+  assert.match(source, /saveFeedback/);
+  assert.match(source, /inlineNotice/);
+  assert.match(source, /setInlineNotice/);
 });
