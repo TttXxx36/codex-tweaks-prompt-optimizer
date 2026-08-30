@@ -1,6 +1,6 @@
 # Session state (Shisan Xinuo Agent Workflow)
 
-- Current goal: 修复 settingsSections 必需扩展导致的功能包启动失败。
-- Decisions made: 设置页不是 Composer/Node 功能运行的必要条件，manifest 显式声明 `settingsSections.required: false`；Renderer 缺少设置扩展时只跳过设置注册，不改动 Node RPC 和网络协议。
-- Constraints: 获取到的全部模型必须可见可选；手动输入仍可用；模型列表只保留当前页面生命周期，不写入 Provider 配置；本次不改动 Codex 主程序，不触碰 GitHub Release。
-- Progress + next step: 已完成日志根因核对、manifest 可选扩展修复、失败用例先红后绿及全量验证，并通过 GitHub API 同步到 `main` 提交 `e28d0f9`；待用户在实际 Codex 中停用/重载功能包确认启动不再循环，未创建新 Release。
+- Current goal: 将 Composer 命令面板锚点修复安全同步到 GitHub `main`。
+- Decisions made: 先把远端 `main` 精确提交备份到独立分支；由于本地与远端历史分叉，保留远端提交并以非强制快进方式发布；不创建 Release，不修改宿主 Codex。
+- Constraints: 只发布本包源码、测试和任务记录；不强推、不删除分支、不处理密钥；真实 Codex 视觉 smoke 仍需用户重载后确认。
+- Progress + next step: 备份分支已创建并指向 `094367ce`；集成提交已完成本地 43/43 测试与语法检查，待 GitHub `main` 指针最终核验。
