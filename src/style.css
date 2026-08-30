@@ -85,7 +85,29 @@
   white-space: nowrap;
 }
 
+.ct-prompt-optimizer-menu-button {
+  align-items: center;
+  align-self: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: inherit;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 24px;
+  padding: 4px;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
 .ct-prompt-optimizer-button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border-color: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.ct-prompt-optimizer-menu-button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 10%, transparent);
   border-color: color-mix(in srgb, currentColor 18%, transparent);
 }
@@ -98,6 +120,7 @@
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host > .ct-prompt-optimizer-button,
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host > .ct-prompt-optimizer-menu-button,
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-button-host > .ct-prompt-optimizer-restore {
   pointer-events: auto;
   position: absolute;
@@ -129,6 +152,7 @@
 }
 
 .ct-prompt-optimizer-button svg,
+.ct-prompt-optimizer-menu-button svg,
 [data-codex-tweaks-ct-prompt-optimizer] svg {
   flex: 0 0 auto;
   height: 14px;
@@ -343,6 +367,93 @@
   position: fixed;
   right: 16px;
   z-index: 2147483001;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu {
+  background: var(--ctpo-bg);
+  border: 1px solid var(--ctpo-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 20%);
+  display: grid;
+  min-width: 176px;
+  overflow: hidden;
+  pointer-events: auto;
+  position: fixed;
+  z-index: 2147483002;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button {
+  background: transparent;
+  border: 0;
+  color: var(--ctpo-text);
+  font: inherit;
+  font-size: 12px;
+  min-height: 34px;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button:hover,
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button:focus-visible {
+  background: var(--ctpo-surface-strong);
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-host {
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: 2147483003;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-backdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 22%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: auto;
+  position: absolute;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog {
+  background: var(--ctpo-bg);
+  border: 1px solid var(--ctpo-border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgb(15 23 42 / 28%);
+  color: var(--ctpo-text);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(820px, calc(100vh - 48px));
+  max-width: min(840px, calc(100vw - 48px));
+  overflow: hidden;
+  width: 800px;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-header {
+  align-items: center;
+  border-bottom: 1px solid var(--ctpo-border);
+  display: flex;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 7px 12px;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog .ctpo-settings {
+  min-height: auto;
+  padding: 18px 22px 28px;
+  width: 100%;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-toast {
