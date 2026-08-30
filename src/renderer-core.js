@@ -21,6 +21,17 @@ const EXCLUDED_SELECTOR = [
   "[data-history-editor]",
   "[data-message-id] [contenteditable]",
   "[data-history] [contenteditable]",
+  "[data-command-menu]",
+  "[data-command-palette]",
+  "[data-command-list]",
+  "[data-suggestion-list]",
+  "[data-suggestions]",
+  "[class*=command-menu]",
+  "[class*=command_menu]",
+  "[class*=command-palette]",
+  "[class*=command_palette]",
+  "[class*=suggestion-list]",
+  "[class*=suggestion_list]",
 ].join(",");
 
 function hasAttributeValue(element, name, value) {
@@ -158,7 +169,7 @@ export function findBestComposer(scope) {
 }
 
 function modelPickerScore(element) {
-  if (!element || isExcludedFromComposer(element)) return -1;
+  if (!element || isExcludedFromComposer(element) || !isElementVisible(element)) return -1;
   const role = element.getAttribute?.("role")?.toLowerCase();
   const tagName = element.tagName?.toLowerCase();
   const ariaHasPopup = element.getAttribute?.("aria-haspopup")?.toLowerCase();
@@ -281,9 +292,15 @@ function isComposerSubmitControl(element) {
   return /\b(send|submit|run|start|execute)\b|发送|提交|运行|开始|执行/.test(label);
 }
 
-export function findComposerActionAnchor(composer) {
+function isReusableComposerAnchor(anchor) {
+  if (!anchor || anchor.isConnected === false || !anchor.parentElement || isExcludedFromComposer(anchor) || !isElementVisible(anchor)) return false;
+  return contextWindowScore(anchor) > 0 || isModelPickerControl(anchor);
+}
+
+export function findComposerActionAnchor(composer, previousAnchor = null) {
   const contextWindow = findComposerContextWindow(composer);
   if (contextWindow?.parentElement) return contextWindow;
+  if (isReusableComposerAnchor(previousAnchor)) return previousAnchor;
   const modelPicker = findModelPicker(composer);
   if (modelPicker?.parentElement) return modelPicker;
   const submitControl = findComposerControl(composer, "button, [role=button]", isComposerSubmitControl);

@@ -8,6 +8,7 @@ import {
   findComposerRegion,
   getComposerButtonPosition,
   findModelPicker,
+  isExcludedFromComposer,
   isComposerCandidate,
   isSameComposerContext,
   modelOptionValues,
@@ -63,6 +64,8 @@ class FakeElement {
     if (selector.includes("dialog") && this.tagName === "DIALOG") return true;
     if (selector.includes("[data-settings]") && this.attributes["data-settings"] !== undefined) return true;
     if (selector.includes("[data-message-id]") && this.attributes["data-message-id"] !== undefined) return true;
+    if (selector.includes("[data-command-palette]") && this.attributes["data-command-palette"] !== undefined) return true;
+    if (selector.includes("[data-command-menu]") && this.attributes["data-command-menu"] !== undefined) return true;
     if (selector.includes("[data-composer-placement]") && this.attributes["data-composer-placement"] !== undefined) return true;
     if (selector.includes("[role=menu]") && this.getAttribute("role") === "menu") return true;
     if (selector.includes("[role=listbox]") && this.getAttribute("role") === "listbox") return true;
@@ -268,6 +271,30 @@ test("falls back to the model picker when the Composer context window is closed"
   }
 });
 
+test("does not retarget an existing Composer anchor to a slash command palette", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+  const modelPicker = new FakeElement("button", { role: "button", "aria-label": "5.6 Terra" });
+  const commandPalette = new FakeElement("div", { "data-command-palette": "true" });
+  const commandModel = new FakeElement("button", { role: "button", textContent: "模型" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  commandPalette.append(commandModel);
+  composerShell.append(modelPicker, composer, commandPalette);
+  composerShell.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) return [commandModel, modelPicker];
+    return [];
+  };
+
+  assert.equal(findComposerActionAnchor(composer, modelPicker), modelPicker);
+});
+
+test("excludes slash command palettes from Composer control discovery", () => {
+  const commandPalette = new FakeElement("div", { "data-command-menu": "true" });
+  const commandItem = new FakeElement("button", { role: "button", textContent: "模型" });
+  commandPalette.append(commandItem);
+
+  assert.equal(isExcludedFromComposer(commandItem), true);
+});
+
 test("positions the optimizer in its own overlay instead of mutating the host toolbar", async () => {
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /composerButtonHost/);
@@ -277,9 +304,13 @@ test("positions the optimizer in its own overlay instead of mutating the host to
   assert.match(source, /entry\.button\.style\.position\s*=\s*["']fixed["']/);
   assert.match(source, /entry\.button\.style\.pointerEvents\s*=\s*["']auto["']/);
   assert.match(source, /entry\.menuButton\.style\.pointerEvents\s*=\s*["']auto["']/);
+  assert.match(source, /const reflowComposerButtons = \(event\)/);
+  assert.match(source, /scroller\.contains\?\.\(entry\.anchor\)/);
   assert.match(source, /hidden:\s*true/);
   assert.doesNotMatch(source, /anchor\.parentElement\.insertBefore\(entry\.button, anchor\)/);
   assert.doesNotMatch(source, /entry\.button\.parentElement\.insertBefore/);
+  assert.doesNotMatch(source, /modelPicker\.style\./);
+  assert.doesNotMatch(source, /findModelPicker\([^)]*\)\.style\./);
 });
 
 test("marks the settings UI extension optional for hosts without the adapter", async () => {

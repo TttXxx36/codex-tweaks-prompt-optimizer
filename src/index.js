@@ -10,6 +10,7 @@ import {
   findComposerCandidates,
   findComposerRegion,
   getComposerButtonPosition,
+  isExcludedFromComposer,
   isSameComposerContext,
   modelOptionValues,
   readInputText,
@@ -714,7 +715,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     for (const entry of [...state.attached.values()]) {
       if (!entry.element.isConnected || !entry.button.isConnected) detachComposer(entry);
       else {
-        const nextAnchor = findComposerActionAnchor(entry.element);
+        const nextAnchor = findComposerActionAnchor(entry.element, entry.anchor);
         if (nextAnchor && nextAnchor !== entry.anchor) placeComposerButton(entry, nextAnchor);
         else if (nextAnchor) positionComposerButton(entry);
         else {
@@ -732,10 +733,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     state.scanTimer = setTimeout(scanComposers, 120);
   };
 
-  const reflowComposerButtons = () => {
+  const reflowComposerButtons = (event) => {
     if (state.disposed) return;
+    const scroller = event?.target;
+    const isGlobalScroll = !scroller
+      || scroller === doc
+      || scroller === doc.defaultView
+      || scroller === doc.documentElement
+      || scroller === doc.body;
     for (const entry of state.attached.values()) {
-      const nextAnchor = findComposerActionAnchor(entry.element);
+      if (!isGlobalScroll && (isExcludedFromComposer(scroller) || !scroller.contains?.(entry.anchor))) continue;
+      const nextAnchor = findComposerActionAnchor(entry.element, entry.anchor);
       if (!nextAnchor) {
         entry.button.hidden = true;
         if (entry.menuButton) entry.menuButton.hidden = true;
