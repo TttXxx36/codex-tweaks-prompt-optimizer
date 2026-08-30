@@ -214,6 +214,59 @@ test("keeps an empty Composer in every mode beside its model picker, not its pro
   }
 });
 
+test("anchors the optimizer immediately before the Composer context window", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+  const contextWindow = new FakeElement("button", {
+    role: "button",
+    "aria-label": "Context window",
+  });
+  const modelPicker = new FakeElement("button", {
+    role: "button",
+    "aria-haspopup": "listbox",
+    "aria-label": "5.6 Luna 极高",
+  });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "" });
+  composerShell.append(contextWindow, modelPicker, composer);
+  composerShell.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) {
+      return [contextWindow, modelPicker];
+    }
+    return [];
+  };
+
+  assert.equal(findComposerActionAnchor(composer), contextWindow);
+});
+
+test("falls back to the model picker when the Composer context window is closed", () => {
+  for (const closedMarker of [
+    { "aria-expanded": "false" },
+    { "data-state": "closed" },
+    { "data-open": "false" },
+  ]) {
+    const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+    const contextWindow = new FakeElement("button", {
+      role: "button",
+      "aria-label": "Context window",
+      ...closedMarker,
+    });
+    const modelPicker = new FakeElement("button", {
+      role: "button",
+      "aria-haspopup": "listbox",
+      "aria-label": "5.6 Luna 极高",
+    });
+    const composer = new FakeElement("textarea", { placeholder: "Message", value: "" });
+    composerShell.append(contextWindow, modelPicker, composer);
+    composerShell.querySelectorAll = (selector) => {
+      if (selector.includes("button") || selector.includes("[aria-haspopup]")) {
+        return [contextWindow, modelPicker];
+      }
+      return [];
+    };
+
+    assert.equal(findComposerActionAnchor(composer), modelPicker);
+  }
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
@@ -257,7 +310,7 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
-  assert.match(source, /attributeFilter:\s*\["aria-label", "aria-haspopup", "data-composer-placement", "data-testid", "role", "title"\]/);
+  assert.match(source, /attributeFilter:\s*\[[\s\S]*"aria-expanded",[\s\S]*"aria-hidden",[\s\S]*"data-open",[\s\S]*"data-state",[\s\S]*"hidden",[\s\S]*\]/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /placeComposerButton/);
@@ -305,6 +358,11 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
+});
+
+test("keeps the optimizer button centered beside its semantic Composer anchor", async () => {
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(css, /\.ct-prompt-optimizer-button\s*\{(?=[^}]*align-self:\s*center;)(?=[^}]*flex:\s*0 0 auto;)(?=[^}]*vertical-align:\s*middle;)/s);
 });
 
 test("preview follows the Composer frame and emphasizes the optimized result", async () => {

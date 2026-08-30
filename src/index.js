@@ -1212,7 +1212,19 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["aria-label", "aria-haspopup", "data-composer-placement", "data-testid", "role", "title"],
+    attributeFilter: [
+      "aria-expanded",
+      "aria-hidden",
+      "aria-label",
+      "aria-haspopup",
+      "data-composer-placement",
+      "data-open",
+      "data-state",
+      "data-testid",
+      "hidden",
+      "role",
+      "title",
+    ],
   });
   registerSettings();
   if (typeof onCleanup === "function") {
