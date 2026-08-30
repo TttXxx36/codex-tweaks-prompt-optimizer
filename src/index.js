@@ -10,6 +10,7 @@ import {
   findComposerCandidates,
   findComposerRegion,
   isSameComposerContext,
+  modelOptionValues,
   readInputText,
   replaceInputText,
 } from "./renderer-core.js";
@@ -719,18 +720,35 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const keyLine = element(doc, "div", { className: "ctpo-inline" }, [keyInput, keyToggle]);
       grid.append(field(doc, "API Key", keyLine, "界面默认遮蔽；显示/隐藏只作用于当前输入草稿，已保存 Key 不回显。此包不宣称操作系统级加密。"));
 
-      const modelInput = element(doc, "input", { id: createSettingsId(view, "model"), list: createSettingsId(view, "model-list"), type: "text", autocomplete: "off", placeholder: "例如 gpt-5.6" });
+      const modelInput = element(doc, "input", { id: createSettingsId(view, "model"), type: "text", autocomplete: "off", placeholder: "例如 gpt-5.6", "aria-label": "手动填写模型名称" });
       modelInput.value = settings.model;
-      modelInput.addEventListener("input", () => { state.settings.model = modelInput.value; });
-      const modelList = element(doc, "datalist", { id: createSettingsId(view, "model-list") });
-      for (const model of view.modelOptions) modelList.append(element(doc, "option", { value: model }));
+      const modelSelect = element(doc, "select", {
+        className: "ctpo-model-select",
+        "aria-label": "选择已获取模型",
+        disabled: view.modelOptions.length === 0,
+      });
+      modelSelect.append(element(doc, "option", {
+        value: "",
+        textContent: view.modelOptions.length ? "选择已获取模型" : "请先获取模型",
+      }));
+      for (const model of view.modelOptions) modelSelect.append(element(doc, "option", { value: model, textContent: model }));
+      modelSelect.value = view.modelOptions.includes(settings.model) ? settings.model : "";
+      modelInput.addEventListener("input", () => {
+        state.settings.model = modelInput.value;
+        modelSelect.value = view.modelOptions.includes(modelInput.value) ? modelInput.value : "";
+      });
+      modelSelect.addEventListener("change", () => {
+        if (!modelSelect.value) return;
+        state.settings.model = modelSelect.value;
+        modelInput.value = modelSelect.value;
+      });
       const modelsButton = actionButton(doc, "获取模型", "list-models", { icon: "refresh", title: "请求 Provider 的模型列表" });
       modelsButton.addEventListener("click", async () => {
         setViewBusy(view, true);
         setInlineNotice("正在获取模型列表……");
         try {
           const response = await callNode("list-models", { settings: { ...state.settings, apiKey: view.keyDraft } });
-          view.modelOptions = Array.isArray(response.models) ? response.models : [];
+          view.modelOptions = modelOptionValues(response.models);
           setInlineNotice(`已获取 ${view.modelOptions.length} 个模型。`, "success");
           view.render();
         } catch (error) {
@@ -739,9 +757,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           setViewBusy(view, false);
         }
       });
-      const modelLine = element(doc, "div", { className: "ctpo-inline" }, [modelInput, modelsButton]);
-      modelLine.append(modelList);
-      grid.append(field(doc, "模型名称", modelLine, "模型列表不受支持时仍可手动填写。"));
+      const modelLine = element(doc, "div", { className: "ctpo-inline ctpo-model-line" }, [modelInput, modelSelect, modelsButton]);
+      grid.append(field(doc, "模型名称", modelLine, "获取模型后可从下拉框选择，也可手动填写模型名称。"));
       providerCard.append(grid);
 
       const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
@@ -1207,4 +1224,3 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 }
 
 export { RENDERER_DEFAULTS };
-

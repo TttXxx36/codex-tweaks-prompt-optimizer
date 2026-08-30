@@ -9,6 +9,7 @@ import {
   findModelPicker,
   isComposerCandidate,
   isSameComposerContext,
+  modelOptionValues,
   readInputText,
   replaceInputText,
 } from "../src/renderer-core.js";
@@ -61,6 +62,7 @@ class FakeElement {
     if (selector.includes("dialog") && this.tagName === "DIALOG") return true;
     if (selector.includes("[data-settings]") && this.attributes["data-settings"] !== undefined) return true;
     if (selector.includes("[data-message-id]") && this.attributes["data-message-id"] !== undefined) return true;
+    if (selector.includes("[data-composer-placement]") && this.attributes["data-composer-placement"] !== undefined) return true;
     if (selector.includes("[role=menu]") && this.getAttribute("role") === "menu") return true;
     if (selector.includes("[role=listbox]") && this.getAttribute("role") === "listbox") return true;
     if (selector.includes("[role=dialog]") && this.getAttribute("role") === "dialog") return true;
@@ -186,6 +188,32 @@ test("finds the model picker in Codex data-composer-placement shells", () => {
   assert.equal(findComposerActionAnchor(composer), picker);
 });
 
+test("keeps an empty Composer in every mode beside its model picker, not its project picker", () => {
+  for (const placement of ["home", "work", "chatgpt"]) {
+    const composerShell = new FakeElement(
+      "section",
+      placement === "chatgpt" ? { "data-composer": "true" } : { "data-composer-placement": placement },
+    );
+    const projectPicker = new FakeElement("button", { role: "combobox", "aria-label": "选择项目" });
+    const modelPicker = new FakeElement("button", {
+      role: "button",
+      "aria-haspopup": "listbox",
+      "aria-label": placement === "chatgpt" ? "GPT-5.6" : "5.6 Luna 极高",
+    });
+    const composer = new FakeElement("textarea", { placeholder: "Message", value: "" });
+    composerShell.append(projectPicker, modelPicker, composer);
+    composerShell.querySelectorAll = (selector) => {
+      if (selector.includes("[aria-haspopup]") || selector.includes("combobox")) return [projectPicker, modelPicker];
+      if (selector.includes("button")) return [projectPicker, modelPicker];
+      return [];
+    };
+
+    assert.equal(isComposerCandidate(composer), true);
+    assert.equal(findModelPicker(composer), modelPicker);
+    assert.equal(findComposerActionAnchor(composer), modelPicker);
+  }
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
@@ -297,3 +325,15 @@ test("settings keeps API key drafts across visibility toggles and renders save f
   assert.match(source, /setInlineNotice/);
 });
 
+test("turns fetched model ids into selectable model options", () => {
+  const models = Array.from({ length: 24 }, (_, index) => `provider-model-${index + 1}`);
+  assert.deepEqual(modelOptionValues(models), models);
+});
+
+test("renders fetched models in a visible selector while keeping manual input", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /const modelSelect = element\(doc, "select"/);
+  assert.match(source, /for \(const model of view\.modelOptions\) modelSelect\.append/);
+  assert.match(source, /modelSelect\.addEventListener\("change"/);
+  assert.match(source, /modelInput\.addEventListener\("input"/);
+});
