@@ -6,8 +6,8 @@ import {
   captureComposerContext,
   currentLocationHref,
   findBestComposer,
+  findComposerActionAnchor,
   findComposerCandidates,
-  findModelPicker,
   isSameComposerContext,
   readInputText,
   replaceInputText,
@@ -364,8 +364,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
   const attachComposer = (composer) => {
     if (state.attached.has(composer) || composer.closest?.(`[${ROOT_ATTRIBUTE}]`)) return;
-    const picker = findModelPicker(composer);
-    if (!picker?.parentElement) return;
+    const anchor = findComposerActionAnchor(composer);
+    if (!anchor?.parentElement) return;
     const button = element(doc, "button", {
       type: "button",
       className: BUTTON_CLASS,
@@ -373,9 +373,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       title: "优化当前提示词",
       "data-codex-tweaks-prompt-optimizer": "button",
     }, [svgIcon(doc, "spark"), "优化"]);
-    const entry = { element: composer, picker, button, restoreButton: null, operation: null, busy: false };
+    const entry = { element: composer, anchor, button, restoreButton: null, operation: null, busy: false };
     button.addEventListener("click", () => startOptimization(entry));
-    picker.parentElement.insertBefore(button, picker);
+    anchor.parentElement.insertBefore(button, anchor);
     state.attached.set(composer, entry);
   };
 
@@ -447,10 +447,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const settings = state.settings;
       container.replaceChildren();
       const wrapper = element(doc, "main", { className: "ctpo-settings" });
-      wrapper.append(
+      const header = element(doc, "header", { className: "ctpo-pane-header" }, [
         element(doc, "h1", { className: "ctpo-title" }, ["提示词优化"]),
         element(doc, "p", { className: "ctpo-description" }, ["只处理当前 Composer 中的提示词，并通过你指定的 API 生成可直接使用的优化结果。不会读取会话历史、文件、附件或项目上下文。"]),
-      );
+      ]);
+      wrapper.append(header);
 
       const generalCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-general` });
       generalCard.append(element(doc, "h2", { id: `${view.id}-general` }, ["基本设置"]));

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   captureComposerContext,
+  findComposerActionAnchor,
   findComposerCandidates,
   findModelPicker,
   isComposerCandidate,
@@ -20,7 +21,7 @@ class FakeElement {
     this.value = attributes.value ?? "";
     this.textContent = attributes.textContent ?? "";
     this.innerText = this.textContent;
-    this.isContentEditable = attributes.contenteditable === "true";
+    this.isContentEditable = attributes.contenteditable === "true" || attributes.contenteditable === "plaintext-only";
     this.contentEditable = attributes.contenteditable ?? "inherit";
     this.isConnected = true;
     this.ownerDocument = {
@@ -81,6 +82,7 @@ class FakeElement {
 test("recognizes textarea and contenteditable composers while excluding UI editors", () => {
   const textarea = new FakeElement("textarea", { placeholder: "Message" });
   const editable = new FakeElement("div", { contenteditable: "true", role: "textbox" });
+  const plaintextEditable = new FakeElement("div", { contenteditable: "plaintext-only", role: "textbox" });
   const settings = new FakeElement("section", { "data-settings": "true" });
   const settingsInput = new FakeElement("textarea");
   settings.append(settingsInput);
@@ -89,6 +91,7 @@ test("recognizes textarea and contenteditable composers while excluding UI edito
   history.append(historyEditor);
   assert.equal(isComposerCandidate(textarea), true);
   assert.equal(isComposerCandidate(editable), true);
+  assert.equal(isComposerCandidate(plaintextEditable), true);
   assert.equal(isComposerCandidate(settingsInput), false);
   assert.equal(isComposerCandidate(historyEditor), false);
   const scope = { querySelectorAll: () => [settingsInput, historyEditor, editable, textarea] };
@@ -111,6 +114,22 @@ test("places model control lookup within composer ancestors and preserves contex
   assert.equal(isSameComposerContext(context, composer, context.href, "原文"), false);
 });
 
+test("uses the submit action when a Codex or Work composer has no model picker", () => {
+  const composerShell = new FakeElement("form", { "data-composer": "true" });
+  const composer = new FakeElement("div", {
+    contenteditable: "plaintext-only",
+    role: "textbox",
+    "aria-label": "Task prompt",
+  });
+  const startTask = new FakeElement("button", { type: "submit", "aria-label": "Start task" });
+  composerShell.append(composer, startTask);
+  composerShell.querySelectorAll = (selector) => selector.includes("button") ? [startTask] : [];
+
+  assert.equal(isComposerCandidate(composer), true);
+  assert.equal(findModelPicker(composer), null);
+  assert.equal(findComposerActionAnchor(composer), startTask);
+});
+
 test("uses native-like replacement and input events for textarea/contenteditable", () => {
   const textarea = new FakeElement("textarea", { value: "old" });
   assert.equal(readInputText(textarea), "old");
@@ -129,8 +148,17 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
+  assert.match(source, /findComposerActionAnchor/);
+  assert.match(source, /anchor\.parentElement\.insertBefore\(button, anchor\)/);
   assert.match(source, /isSameComposerContext\(context/);
   for (const method of ["load-settings", "save-settings", "clear-api-key", "test-connection", "list-models", "optimize", "clarify-round", "list-history", "delete-history", "clear-history"]) {
     assert.match(source, new RegExp(`['"]${method}['"]|callNode\\(\\s*['"]${method}['"]`));
   }
+});
+
+test("settings stylesheet centers the pane and follows Codex light and dark host classes", async () => {
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*720px\);)(?=[^}]*margin:\s*0 auto;)/s);
+  assert.match(css, /:root:not\(\.electron-light\)\s+\[data-codex-tweaks-ct-prompt-optimizer\]/);
+  assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
 });

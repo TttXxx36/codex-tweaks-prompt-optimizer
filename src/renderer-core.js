@@ -11,8 +11,8 @@ const EXCLUDED_SELECTOR = [
   "[role=menuitem]",
   "[data-settings]",
   "[data-history-editor]",
-  "[data-message-id] [contenteditable=true]",
-  "[data-history] [contenteditable=true]",
+  "[data-message-id] [contenteditable]",
+  "[data-history] [contenteditable]",
 ].join(",");
 
 function hasAttributeValue(element, name, value) {
@@ -44,7 +44,11 @@ export function isComposerCandidate(element) {
   if (!element || !isElementVisible(element) || isExcludedFromComposer(element)) return false;
   const tagName = element.tagName?.toLowerCase();
   const isTextArea = tagName === "textarea";
-  const isContentEditable = element.isContentEditable === true || element.contentEditable === "true";
+  const contentEditableAttribute = element.getAttribute?.("contenteditable");
+  const contentEditableValue = String(element.contentEditable ?? "").toLowerCase();
+  const isContentEditable = element.isContentEditable === true
+    || ["true", "plaintext-only"].includes(contentEditableValue)
+    || (typeof contentEditableAttribute === "string" && contentEditableAttribute.toLowerCase() !== "false");
   const isRoleTextbox = element.getAttribute?.("role")?.toLowerCase() === "textbox";
   if (!isTextArea && !isContentEditable && !isRoleTextbox) return false;
   if (element.disabled || element.readOnly || element.getAttribute?.("aria-disabled") === "true") return false;
@@ -126,7 +130,7 @@ export function isSameComposerContext(context, element, href, expectedText) {
 export function findComposerCandidates(scope) {
   const queryRoot = scope?.querySelectorAll ? scope : scope?.ownerDocument;
   if (!queryRoot?.querySelectorAll) return [];
-  const candidates = [...queryRoot.querySelectorAll("textarea, [contenteditable=true], [role=textbox]")]
+  const candidates = [...queryRoot.querySelectorAll("textarea, [contenteditable], [role=textbox]")]
     .filter(isComposerCandidate);
   return candidates.sort((left, right) => composerScore(right) - composerScore(left));
 }
@@ -156,15 +160,43 @@ export function isModelPickerControl(element) {
     element.textContent,
     element.getAttribute?.("data-testid"),
   ].filter(Boolean).join(" ").toLowerCase();
-  return /model|模型|gpt|claude/.test(label) && (tagName === "button" || role === "button" || role === "combobox");
+  return /model|模型|gpt|claude|codex|agent|代理/.test(label) && (tagName === "button" || role === "button" || role === "combobox");
 }
 
 export function findModelPicker(composer) {
   let current = composer;
-  for (let depth = 0; current && depth < 6; depth += 1, current = current.parentElement) {
+  for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
     const controls = [...(current.querySelectorAll?.("button, [role=button], [role=combobox], select") ?? [])];
     const match = controls.find(isModelPickerControl);
     if (match) return match;
+  }
+  return null;
+}
+
+function isComposerSubmitControl(element) {
+  if (!element || isExcludedFromComposer(element)) return false;
+  const tagName = element.tagName?.toLowerCase();
+  const role = element.getAttribute?.("role")?.toLowerCase();
+  if (tagName !== "button" && role !== "button") return false;
+  if (element.disabled || element.getAttribute?.("aria-disabled") === "true") return false;
+  if (element.getAttribute?.("type")?.toLowerCase() === "submit") return true;
+  const label = [
+    element.getAttribute?.("aria-label"),
+    element.getAttribute?.("title"),
+    element.getAttribute?.("data-testid"),
+    element.textContent,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /\b(send|submit|run|start|execute)\b|发送|提交|运行|开始|执行/.test(label);
+}
+
+export function findComposerActionAnchor(composer) {
+  const modelPicker = findModelPicker(composer);
+  if (modelPicker?.parentElement) return modelPicker;
+  let current = composer;
+  for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
+    const controls = [...(current.querySelectorAll?.("button, [role=button]") ?? [])];
+    const submitControl = controls.find(isComposerSubmitControl);
+    if (submitControl?.parentElement) return submitControl;
   }
   return null;
 }
