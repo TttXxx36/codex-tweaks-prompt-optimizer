@@ -310,7 +310,7 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
-  assert.match(source, /attributeFilter:\s*\["aria-label", "aria-haspopup", "data-composer-placement", "data-testid", "role", "title"\]/);
+  assert.match(source, /attributeFilter:\s*\[[\s\S]*"aria-expanded",[\s\S]*"aria-hidden",[\s\S]*"data-open",[\s\S]*"data-state",[\s\S]*"hidden",[\s\S]*\]/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /placeComposerButton/);
