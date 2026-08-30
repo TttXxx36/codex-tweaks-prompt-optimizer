@@ -1,0 +1,49 @@
+{
+  "name": "ct-prompt-optimizer",
+  "version": "0.1.0",
+  "description": "为 Codex Composer 提供隐私边界清晰的提示词优化、预览和澄清工作流。",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TttXxx36/codex-tweaks-prompt-optimizer.git"
+  },
+  "homepage": "https://github.com/TttXxx36/codex-tweaks-prompt-optimizer",
+  "keywords": [
+    "codex-tweaks-package",
+    "codex-tweaks-ui",
+    "prompt-optimizer"
+  ],
+  "license": "MIT",
+  "dependencies": {},
+  "scripts": {
+    "check": "node --check src/index.js && node --check src/node.js",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "codexTweaks": {
+    "apiVersion": 3,
+    "entrypoints": {
+      "renderer": "src/index.js",
+      "node": "src/node.js"
+    },
+    "priority": 100,
+    "packageDependencies": {},
+    "permissions": {
+      "node": {
+        "reason": "联网访问用户指定的提示词优化 API，并在功能包数据目录保存配置和最近记录；不访问其他文件、不运行子进程、不发送遥测。"
+      }
+    },
+    "ui": {
+      "settingsSections": {
+        "apiVersion": 1,
+        "items": [
+          {
+            "id": "prompt-optimizer",
+            "title": "提示词优化",
+            "group": "personal",
+            "icon": "personalization"
+          }
+        ]
+      }
+    }
+  }
+}
