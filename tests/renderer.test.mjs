@@ -9,6 +9,7 @@ import {
   findModelPicker,
   isComposerCandidate,
   isSameComposerContext,
+  modelOptionValues,
   readInputText,
   replaceInputText,
 } from "../src/renderer-core.js";
@@ -322,4 +323,17 @@ test("settings keeps API key drafts across visibility toggles and renders save f
   assert.match(source, /saveFeedback/);
   assert.match(source, /inlineNotice/);
   assert.match(source, /setInlineNotice/);
+});
+
+test("turns fetched model ids into selectable model options", () => {
+  const models = Array.from({ length: 24 }, (_, index) => `provider-model-${index + 1}`);
+  assert.deepEqual(modelOptionValues(models), models);
+});
+
+test("renders fetched models in a visible selector while keeping manual input", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /const modelSelect = element\(doc, "select"/);
+  assert.match(source, /for \(const model of view\.modelOptions\) modelSelect\.append/);
+  assert.match(source, /modelSelect\.addEventListener\("change"/);
+  assert.match(source, /modelInput\.addEventListener\("input"/);
 });

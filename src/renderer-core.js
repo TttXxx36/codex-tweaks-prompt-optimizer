@@ -2,6 +2,14 @@ export const ROOT_ATTRIBUTE = "data-codex-tweaks-ct-prompt-optimizer";
 export const BUTTON_CLASS = "ct-prompt-optimizer-button";
 export const RESTORE_BUTTON_CLASS = "ct-prompt-optimizer-restore";
 
+export function modelOptionValues(models) {
+  if (!Array.isArray(models)) return [];
+  return [...new Set(models
+    .filter((model) => typeof model === "string")
+    .map((model) => model.trim())
+    .filter(Boolean))];
+}
+
 const EXCLUDED_SELECTOR = [
   "dialog",
   "[role=dialog]",
