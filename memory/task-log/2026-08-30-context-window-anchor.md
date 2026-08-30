@@ -6,5 +6,5 @@
 - Diagnosis: 先加入回归用例，旧实现返回 `5.6 Luna` 模型选择器，测试 32 通过、1 失败；根因是动作锚点只考虑模型选择器，没有识别 Composer 内固定的背景信息窗口。
 - Online/reuse survey: 检查 `codex-tweaks/codex-tweaks-custom-background` 参考包；其范围是设置页视觉样式，不提供 Composer 锚点实现，因此保留本包现有原生 DOM 方案，仅适配语义标记。
 - Decision: 新增轻量 `contextWindowScore`/`findComposerContextWindow`，按 `context`、`上下文`、`背景信息` 等可访问名称、title、test id 或类名识别候选；背景信息窗口优先，模型选择器和发送按钮后备。新增 `align-self: center`、`flex: 0 0 auto`、`vertical-align: middle`，不强行改写宿主父容器布局。
-- Result: 回归用例已转绿；`npm test` 34/34 通过；`npm run check` 通过；`git diff --check` 通过。尚未提交或推送。
+- Result: 回归用例已转绿；`npm test` 34/34 通过；`npm run check` 通过；`git diff --check` 通过。代码已包含在 GitHub `main` 提交 `b850537eed4c033f0ded483e1124f4a92ee27a92`，未创建新 Release。
 - Rollback point: `357844d`，修改前工作区干净。
