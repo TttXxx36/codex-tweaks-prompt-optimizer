@@ -146,6 +146,30 @@ test("recognizes a generic listbox trigger before the send action", () => {
   assert.equal(findComposerActionAnchor(composer), picker);
 });
 
+test("finds a model picker in an outer Composer region before falling back to send", () => {
+  const composerRegion = new FakeElement("section", { "data-composer": "true" });
+  const picker = new FakeElement("button", { role: "button", "aria-haspopup": "listbox", "aria-label": "Auto" });
+  const submit = new FakeElement("button", { type: "submit", "aria-label": "发送" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  let inputBranch = composerRegion;
+  for (let depth = 0; depth < 7; depth += 1) {
+    const wrapper = new FakeElement("div");
+    inputBranch.append(wrapper);
+    inputBranch = wrapper;
+  }
+  composerRegion.append(picker);
+  inputBranch.append(composer, submit);
+  composerRegion.querySelectorAll = (selector) => {
+    if (selector.includes("[aria-haspopup]")) return [picker, submit];
+    if (selector.includes("button")) return [picker, submit];
+    return [];
+  };
+  inputBranch.querySelectorAll = (selector) => selector.includes("button") ? [submit] : [];
+
+  assert.equal(findModelPicker(composer), picker);
+  assert.equal(findComposerActionAnchor(composer), picker);
+});
+
 test("uses the submit action when a Codex or Work composer has no model picker", () => {
   const composerShell = new FakeElement("form", { "data-composer": "true" });
   const composer = new FakeElement("div", {
@@ -179,6 +203,7 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
+  assert.match(source, /attributeFilter:\s*\["aria-label", "aria-haspopup", "data-testid", "role", "title"\]/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /placeComposerButton/);
