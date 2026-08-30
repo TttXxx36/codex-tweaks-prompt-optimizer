@@ -1189,7 +1189,12 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   doc.addEventListener("scroll", reflowPanel, true);
   doc.addEventListener("keydown", onDocumentKeyDown);
   state.observer = new MutationObserver(() => scheduleScan());
-  state.observer.observe(doc.body ?? root, { childList: true, subtree: true });
+  state.observer.observe(doc.body ?? root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["aria-label", "aria-haspopup", "data-testid", "role", "title"],
+  });
   registerSettings();
   if (typeof onCleanup === "function") {
     onCleanup(cleanup);

@@ -170,14 +170,35 @@ export function isModelPickerControl(element) {
   return hasModelLabel || hasCompactModelValue;
 }
 
-export function findModelPicker(composer) {
-  let current = composer;
-  for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
-    const controls = [...(current.querySelectorAll?.("button, [role=button], [role=combobox], [aria-haspopup], [data-testid*=model], select") ?? [])];
-    const match = controls.find(isModelPickerControl);
-    if (match) return match;
+function isComposerRegion(element) {
+  if (!element) return false;
+  const tagName = element.tagName?.toLowerCase();
+  const testId = element.getAttribute?.("data-testid")?.toLowerCase() ?? "";
+  return tagName === "form"
+    || element.getAttribute?.("data-composer") != null
+    || /composer/.test(testId);
+}
+
+function findComposerRegion(composer) {
+  const body = composer?.ownerDocument?.body;
+  for (let current = composer; current && current !== body; current = current.parentElement) {
+    if (isComposerRegion(current)) return current;
   }
-  return null;
+  return composer?.parentElement ?? null;
+}
+
+function findComposerControl(composer, selector, matches) {
+  const region = findComposerRegion(composer);
+  const controls = [...(region?.querySelectorAll?.(selector) ?? [])];
+  return controls.find(matches) ?? null;
+}
+
+export function findModelPicker(composer) {
+  return findComposerControl(
+    composer,
+    "button, [role=button], [role=combobox], [aria-haspopup], [data-testid*=model], select",
+    isModelPickerControl,
+  );
 }
 
 function isComposerSubmitControl(element) {
@@ -199,11 +220,6 @@ function isComposerSubmitControl(element) {
 export function findComposerActionAnchor(composer) {
   const modelPicker = findModelPicker(composer);
   if (modelPicker?.parentElement) return modelPicker;
-  let current = composer;
-  for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
-    const controls = [...(current.querySelectorAll?.("button, [role=button]") ?? [])];
-    const submitControl = controls.find(isComposerSubmitControl);
-    if (submitControl?.parentElement) return submitControl;
-  }
-  return null;
+  const submitControl = findComposerControl(composer, "button, [role=button]", isComposerSubmitControl);
+  return submitControl?.parentElement ? submitControl : null;
 }
