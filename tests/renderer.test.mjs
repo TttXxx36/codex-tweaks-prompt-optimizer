@@ -11,6 +11,11 @@ import {
   readInputText,
   replaceInputText,
 } from "../src/renderer-core.js";
+import {
+  findPanelPosition,
+  normalizePanelSize,
+  panelRectsOverlap,
+} from "../src/panel-geometry.js";
 
 class FakeElement {
   constructor(tagName, attributes = {}) {
@@ -150,10 +155,39 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /anchor\.parentElement\.insertBefore\(button, anchor\)/);
+  assert.match(source, /data-ctpo-drag-handle/);
+  assert.match(source, /ResizeObserver/);
+  assert.match(source, /doc\.addEventListener\("scroll", reflowPanel, true\)/);
   assert.match(source, /isSameComposerContext\(context/);
   for (const method of ["load-settings", "save-settings", "clear-api-key", "test-connection", "list-models", "optimize", "clarify-round", "list-history", "delete-history", "clear-history"]) {
     assert.match(source, new RegExp(`['"]${method}['"]|callNode\\(\\s*['"]${method}['"]`));
   }
+});
+
+test("preview geometry prefers the space above Composer, then avoids overlap and clamps to the viewport", () => {
+  const viewport = { width: 1200, height: 800 };
+  const anchor = { left: 300, top: 620, right: 900, bottom: 700 };
+  const above = findPanelPosition({ anchor, width: 560, height: 420, viewport });
+  assert.deepEqual(above, { left: 300, top: 188 });
+  assert.equal(panelRectsOverlap(above.left, above.top, 560, 420, anchor), false);
+
+  const nearTop = findPanelPosition({
+    anchor: { left: 300, top: 20, right: 600, bottom: 100 },
+    width: 560,
+    height: 420,
+    viewport,
+  });
+  assert.deepEqual(nearTop, { left: 612, top: 20 });
+
+  const preferred = findPanelPosition({
+    anchor,
+    width: 560,
+    height: 420,
+    viewport,
+    preferred: { left: 20, top: 20 },
+  });
+  assert.deepEqual(preferred, { left: 20, top: 20 });
+  assert.deepEqual(normalizePanelSize(1000, 1000, { width: 640, height: 480 }), { width: 616, height: 456 });
 });
 
 test("settings stylesheet centers the pane and follows Codex light and dark host classes", async () => {
@@ -161,4 +195,7 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*720px\);)(?=[^}]*margin:\s*0 auto;)/s);
   assert.match(css, /:root:not\(\.electron-light\)\s+\[data-codex-tweaks-ct-prompt-optimizer\]/);
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
+  assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
+  assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
+  assert.match(css, /\.ctpo-panel-preview\s*\{(?=[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\);)/s);
 });

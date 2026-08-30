@@ -12,6 +12,13 @@ import {
   readInputText,
   replaceInputText,
 } from "./renderer-core.js";
+import {
+  PANEL_DEFAULT_HEIGHT,
+  PANEL_DEFAULT_WIDTH,
+  PANEL_MARGIN,
+  findPanelPosition,
+  normalizePanelSize,
+} from "./panel-geometry.js";
 
 const RENDERER_DEFAULTS = {
   schemaVersion: 1,
@@ -123,6 +130,16 @@ function errorFromNodeResponse(response) {
   return error;
 }
 
+function createPanelLayout(layout = {}) {
+  return {
+    left: Number.isFinite(Number(layout.left)) ? Number(layout.left) : null,
+    top: Number.isFinite(Number(layout.top)) ? Number(layout.top) : null,
+    width: Number.isFinite(Number(layout.width)) ? Number(layout.width) : PANEL_DEFAULT_WIDTH,
+    height: Number.isFinite(Number(layout.height)) ? Number(layout.height) : PANEL_DEFAULT_HEIGHT,
+    manual: layout.manual === true,
+  };
+}
+
 export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const doc = getDocument(root);
   if (!root || !doc) throw new Error("Renderer root 未提供");
@@ -140,6 +157,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     activeOperations: new Map(),
     panel: null,
     panelHost: null,
+    panelResizeObserver: null,
+    panelDragCleanup: null,
+    panelContextCleanup: null,
     uiRoot: null,
     notice: { text: "", kind: "" },
     scanTimer: null,
@@ -224,6 +244,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const closePanel = () => {
     const panel = state.panel;
     state.panel = null;
+    clearPanelInteractions();
     if (panel?.operationId && panel.operationMethod) {
       node?.invoke?.(panel.operationMethod, { operationId: panel.operationId, cancel: true }).catch?.(() => {});
     }
@@ -234,6 +255,158 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const candidates = findComposerCandidates(doc);
     return candidates.find((candidate) => !candidate.closest?.(`[${ROOT_ATTRIBUTE}]`)) ?? null;
   };
+
+  const documentHref = () => doc.defaultView?.location?.href ?? "";
+
+  const panelAnchorElement = (panelState) => {
+    const contextElement = panelState?.context?.element;
+    if (contextElement?.isConnected !== false && contextElement?.getBoundingClientRect) return contextElement;
+    return currentComposer();
+  };
+
+  const panelAnchorRect = (panelState) => {
+    const element = panelAnchorElement(panelState);
+    if (!element) return null;
+    const rect = element.getBoundingClientRect?.();
+    if (!rect) return null;
+    const left = Number(rect.left);
+    const top = Number(rect.top);
+    const right = Number.isFinite(Number(rect.right)) ? Number(rect.right) : left + Number(rect.width || 0);
+    const bottom = Number.isFinite(Number(rect.bottom)) ? Number(rect.bottom) : top + Number(rect.height || 0);
+    if (![left, top, right, bottom].every(Number.isFinite)) return null;
+    return { left, top, right, bottom };
+  };
+
+  const viewportSize = () => ({
+    width: Math.max(1, Number(doc.defaultView?.innerWidth || doc.documentElement?.clientWidth || PANEL_DEFAULT_WIDTH + PANEL_MARGIN * 2)),
+    height: Math.max(1, Number(doc.defaultView?.innerHeight || doc.documentElement?.clientHeight || PANEL_DEFAULT_HEIGHT + PANEL_MARGIN * 2)),
+  });
+
+  const panelSessionIsCurrent = (panelState) => {
+    if (!panelState) return false;
+    if (panelState.locationHref && panelState.locationHref !== documentHref()) return false;
+    const context = panelState.context;
+    return !context || isSameComposerContext(context, context.element, currentLocationHref(context.element));
+  };
+
+  const readPanelSize = (panel, layout) => {
+    const rect = panel.getBoundingClientRect?.();
+    return normalizePanelSize(
+      rect?.width || layout.width,
+      rect?.height || layout.height,
+      viewportSize(),
+    );
+  };
+
+  const applyPanelGeometry = (panel, panelState, { preservePosition = false } = {}) => {
+    if (!panel || !panelState) return;
+    const layout = panelState.layout ?? createPanelLayout();
+    const size = readPanelSize(panel, layout);
+    const preferred = preservePosition && Number.isFinite(layout.left) && Number.isFinite(layout.top)
+      ? { left: layout.left, top: layout.top }
+      : null;
+    const position = findPanelPosition({
+      anchor: panelAnchorRect(panelState),
+      width: size.width,
+      height: size.height,
+      viewport: viewportSize(),
+      preferred,
+    });
+    panel.style.width = `${size.width}px`;
+    panel.style.height = `${size.height}px`;
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+    panelState.layout = { ...layout, ...size, ...position };
+  };
+
+  const clearPanelInteractions = () => {
+    state.panelResizeObserver?.disconnect?.();
+    state.panelResizeObserver = null;
+    state.panelDragCleanup?.();
+    state.panelDragCleanup = null;
+    state.panelContextCleanup?.();
+    state.panelContextCleanup = null;
+  };
+
+  const installPanelInteractions = (panel, panelState) => {
+    const header = panel.querySelector?.(".ctpo-panel-header");
+    const view = doc.defaultView;
+    if (!header || !view) return;
+    const onPointerDown = (event) => {
+      if (event.button !== 0 || event.target?.closest?.("button, input, textarea, select")) return;
+      const startRect = panel.getBoundingClientRect?.();
+      if (!startRect) return;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      panelState.layout = { ...createPanelLayout(panelState.layout), manual: true };
+      header.dataset.dragging = "true";
+      event.preventDefault?.();
+      const onPointerMove = (moveEvent) => {
+        if (state.panel !== panelState) return;
+        const position = findPanelPosition({
+          anchor: panelAnchorRect(panelState),
+          width: startRect.width,
+          height: startRect.height,
+          viewport: viewportSize(),
+          preferred: {
+            left: startRect.left + moveEvent.clientX - startX,
+            top: startRect.top + moveEvent.clientY - startY,
+          },
+        });
+        panel.style.left = `${position.left}px`;
+        panel.style.top = `${position.top}px`;
+        panelState.layout = { ...panelState.layout, ...position, width: startRect.width, height: startRect.height };
+      };
+      const stopDragging = () => {
+        header.dataset.dragging = "false";
+        view.removeEventListener("pointermove", onPointerMove, true);
+        view.removeEventListener("pointerup", stopDragging, true);
+        view.removeEventListener("pointercancel", stopDragging, true);
+        if (state.panelDragCleanup === stopDragging) state.panelDragCleanup = null;
+      };
+      state.panelDragCleanup?.();
+      state.panelDragCleanup = stopDragging;
+      view.addEventListener("pointermove", onPointerMove, true);
+      view.addEventListener("pointerup", stopDragging, true);
+      view.addEventListener("pointercancel", stopDragging, true);
+    };
+    header.addEventListener("pointerdown", onPointerDown);
+
+    const contextElement = panelState.context?.element;
+    if (contextElement?.addEventListener) {
+      const syncApplyState = () => {
+        if (state.panel !== panelState) return;
+        const apply = panel.querySelector?.('[data-ctpo-action="apply-preview"]');
+        if (!apply) return;
+        const current = isSameComposerContext(panelState.context, contextElement, currentLocationHref(contextElement), panelState.original);
+        apply.disabled = !current;
+        apply.title = current ? "应用优化结果" : "原 Composer 已变化，请重新优化";
+      };
+      contextElement.addEventListener("input", syncApplyState);
+      state.panelContextCleanup = () => contextElement.removeEventListener("input", syncApplyState);
+      syncApplyState();
+    }
+
+    const ResizeObserverCtor = view.ResizeObserver ?? globalThis.ResizeObserver;
+    if (typeof ResizeObserverCtor === "function") {
+      state.panelResizeObserver = new ResizeObserverCtor(() => {
+        if (state.panel !== panelState) return;
+        applyPanelGeometry(panel, panelState, { preservePosition: true });
+      });
+      state.panelResizeObserver.observe(panel);
+    }
+  };
+
+  function reflowPanel() {
+    const panelState = state.panel;
+    const panel = state.panelHost?.querySelector?.(".ctpo-panel");
+    if (!panelState || !panel || state.disposed) return;
+    if (!panelSessionIsCurrent(panelState)) {
+      closePanel();
+      return;
+    }
+    applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
+  }
 
   const updateButton = (entry, busy) => {
     if (!entry?.button) return;
@@ -272,7 +445,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const showPreview = ({ original, result, clarifications = [], mode = "preview", context = null, fromHistory = false }) => {
+  const showPreview = ({ original, result, clarifications = [], mode = "preview", context = null, fromHistory = false, layout = null }) => {
+    const inheritedLayout = layout ?? state.panel?.layout;
     state.panel = {
       kind: "preview",
       original,
@@ -281,6 +455,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       mode,
       context,
       fromHistory,
+      locationHref: documentHref(),
+      layout: createPanelLayout(inheritedLayout ?? {}),
       notice: fromHistory ? "历史记录只会在你明确应用或复制时写入当前 Composer。" : "",
     };
     renderPanel();
@@ -319,6 +495,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           kind: "clarify",
           original,
           context,
+          locationHref: documentHref(),
+          layout: createPanelLayout(),
           answers: [],
           questions: [],
           round: 1,
@@ -388,9 +566,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const scanComposers = () => {
     state.scanTimer = null;
     if (state.disposed || !state.ready || !state.settings.enabled || !node) {
+      closePanel();
       for (const entry of state.attached.values()) detachComposer(entry);
       return;
     }
+    if (state.panel && !panelSessionIsCurrent(state.panel)) closePanel();
     for (const entry of [...state.attached.values()]) {
       if (!entry.element.isConnected || !entry.button.isConnected) detachComposer(entry);
     }
@@ -674,30 +854,35 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   }
 
   function renderPanel() {
+    clearPanelInteractions();
     state.panelHost.replaceChildren();
     const panelState = state.panel;
     if (!panelState || state.disposed) return;
-    const panel = element(doc, "section", { className: "ctpo-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "ctpo-panel-title" });
+    const panel = element(doc, "section", { className: "ctpo-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "ctpo-panel-title", "data-ctpo-panel": "true" });
     const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", title: "关闭面板" }, [svgIcon(doc, "close")]);
     close.addEventListener("click", closePanel);
-    const header = element(doc, "div", { className: "ctpo-panel-header" }, [
+    const header = element(doc, "div", { className: "ctpo-panel-header", "data-ctpo-drag-handle": "true", tabindex: "0", "aria-label": "拖动预览窗口" }, [
       element(doc, "h2", { id: "ctpo-panel-title" }, [panelState.kind === "clarify" ? "澄清提示词" : "优化结果"]),
       close,
     ]);
-    panel.append(header);
-    if (panelState.kind === "preview") renderPreviewContent(panel, panelState);
-    else renderClarifyContent(panel, panelState);
+    const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-${panelState.kind}` });
+    const actions = element(doc, "div", { className: "ctpo-actions ctpo-panel-actions" });
+    panel.append(header, content, actions);
+    if (panelState.kind === "preview") renderPreviewContent(content, actions, panelState);
+    else renderClarifyContent(content, actions, panelState);
     state.panelHost.append(panel);
+    applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
+    installPanelInteractions(panel, panelState);
     const firstInput = panel.querySelector("textarea, input, button");
     firstInput?.focus?.();
   }
 
-  function renderPreviewContent(panel, panelState) {
+  function renderPreviewContent(panel, actions, panelState) {
     panel.append(element(doc, "p", { className: "ctpo-hint" }, [panelState.fromHistory ? "这是历史记录预览，不会自动覆盖当前 Composer。" : "检查并编辑结果后，再决定是否应用。"]));
-    panel.append(element(doc, "label", { className: "ctpo-label" }, ["原始提示词"]));
+    panel.append(element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
     panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
-    const resultLabel = element(doc, "label", { className: "ctpo-label", for: "ctpo-preview-result" }, ["优化结果"]);
-    const result = element(doc, "textarea", { id: "ctpo-preview-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
+    const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
+    const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
     result.addEventListener("input", () => { panelState.result = result.value; });
     panel.append(resultLabel, result);
     const contextCurrent = panelState.context
@@ -705,7 +890,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       : true;
     if (panelState.context && !contextCurrent) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, ["原 Composer 已变化。为避免覆盖新内容，应用按钮已停用。"]));
     if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status" }, [panelState.notice]));
-    const actions = element(doc, "div", { className: "ctpo-actions" });
     const apply = actionButton(doc, "应用结果", "apply-preview", { icon: "check", kind: "primary", disabled: Boolean(panelState.context && !contextCurrent) });
     apply.addEventListener("click", async () => {
       let target = panelState.context?.element;
@@ -746,10 +930,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     });
     actions.append(apply, copy, actionButton(doc, "取消", "cancel-preview", { icon: "cancel" }));
     actions.querySelector('[data-ctpo-action="cancel-preview"]').addEventListener("click", closePanel);
-    panel.append(actions);
   }
 
-  function renderClarifyContent(panel, panelState) {
+  function renderClarifyContent(panel, actions, panelState) {
     panel.append(element(doc, "p", { className: "ctpo-hint" }, [`最多 3 轮，每轮最多 3 个问题。当前第 ${panelState.round} 轮；留空或跳过都可以。`]));
     panel.append(element(doc, "label", { className: "ctpo-label" }, ["原始提示词"]));
     panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
@@ -766,7 +949,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     } else if (panelState.ready) {
       panel.append(element(doc, "div", { className: "ctpo-status", "data-kind": "success" }, ["模型判断信息已足够。点击“生成预览”继续。"]));
     }
-    const actions = element(doc, "div", { className: "ctpo-actions" });
     if (!panelState.busy && panelState.questions.length) {
       const submitLabel = panelState.round >= 3 ? "提交回答并生成预览" : "提交回答";
       const submit = actionButton(doc, submitLabel, "submit-clarify", { icon: "check", kind: "primary" });
@@ -784,7 +966,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const cancel = actionButton(doc, "取消", "cancel-clarify", { icon: "cancel" });
     cancel.addEventListener("click", closePanel);
     actions.append(cancel);
-    panel.append(actions);
   }
 
   async function runClarifyRound(panelState) {
@@ -863,6 +1044,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         clarifications: panelState.answers,
         mode: "clarify",
         context: panelState.context,
+        layout: panelState.layout,
       });
     } catch (error) {
       if (state.panel !== panelState) return;
@@ -875,6 +1057,13 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       state.activeOperations.delete(operationId);
     }
   }
+
+  const onDocumentKeyDown = (event) => {
+    if (event.key === "Escape" && state.panel) {
+      event.preventDefault?.();
+      closePanel();
+    }
+  };
 
   async function copyText(text) {
     if (doc.defaultView?.navigator?.clipboard?.writeText) {
@@ -931,6 +1120,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     state.observer?.disconnect?.();
     if (state.scanTimer) clearTimeout(state.scanTimer);
     if (state.toastTimer) clearTimeout(state.toastTimer);
+    doc.defaultView?.removeEventListener("resize", reflowPanel);
+    doc.removeEventListener("scroll", reflowPanel, true);
+    doc.removeEventListener("keydown", onDocumentKeyDown);
     state.toastTimer = null;
     for (const entry of [...state.attached.values()]) detachComposer(entry);
     for (const operation of state.activeOperations.values()) {
@@ -939,11 +1131,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     state.activeOperations.clear();
     settingsRegistration?.unregister?.();
     settingsRegistration?.dispose?.();
+    clearPanelInteractions();
     state.panelHost.replaceChildren();
     state.uiRoot.remove();
     root.removeAttribute(ROOT_ATTRIBUTE);
   };
 
+  doc.defaultView?.addEventListener("resize", reflowPanel);
+  doc.addEventListener("scroll", reflowPanel, true);
+  doc.addEventListener("keydown", onDocumentKeyDown);
   state.observer = new MutationObserver(() => scheduleScan());
   state.observer.observe(doc.body ?? root, { childList: true, subtree: true });
   registerSettings();
