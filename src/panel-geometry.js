@@ -80,4 +80,3 @@ export function findPanelPosition({ anchor = null, width, height, viewport, pref
   }
   return firstBounded ?? boundedPosition(margin, margin, safeWidth, safeHeight, viewport, margin);
 }
-

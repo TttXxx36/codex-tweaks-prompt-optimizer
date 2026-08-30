@@ -493,4 +493,3 @@ test("registers exactly the fixed Node RPC surface and cleans registrations", as
     await rm(dataDirectory, { recursive: true, force: true });
   }
 });
-
