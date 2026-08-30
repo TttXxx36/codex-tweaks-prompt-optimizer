@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const CONFIG_FILE = "config.json";
 const HISTORY_FILE = "history.json";
-const PACKAGE_VERSION = "0.1.0";
+const PACKAGE_VERSION = "0.1.4";
 
 function asTrimmedString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -227,7 +227,7 @@ export function modelsEndpointCandidates(baseUrl) {
   return [addPath(root, "models"), addPath(root, "v1/models")];
 }
 
-export function validateSettingsForRequest(settings) {
+export function validateSettingsForRequest(settings, { requireModel = true } = {}) {
   const normalized = normalizeSettings(settings);
   validateBaseUrl(normalized.baseUrl);
   if (!normalized.apiKey) {
@@ -235,7 +235,7 @@ export function validateSettingsForRequest(settings) {
     error.code = "missing_api_key";
     throw error;
   }
-  if (!normalized.model) {
+  if (requireModel && !normalized.model) {
     const error = new Error("请先填写模型名称");
     error.code = "missing_model";
     throw error;
@@ -348,7 +348,10 @@ function textFromContentArray(content) {
 export function extractResponseText(body) {
   if (!isPlainObject(body)) return "";
   if (typeof body.output_text === "string") return body.output_text;
-  if (isPlainObject(body.response) && typeof body.response.output_text === "string") return body.response.output_text;
+  if (isPlainObject(body.response) && body.response !== body) {
+    const nested = extractResponseText(body.response);
+    if (nested) return nested;
+  }
   if (Array.isArray(body.output)) {
     const output = body.output.map((item) => textFromContentArray(item?.content)).filter(Boolean).join("\n");
     if (output) return output;
@@ -489,12 +492,17 @@ function mergeKnownSseEvents(events) {
   let responsesText = "";
   let chatText = "";
   let anthropicText = "";
+  let completedResponseText = "";
   const modelItems = [];
 
   for (const event of events) {
     if (!isPlainObject(event)) continue;
     if (typeof event.output_text === "string") responsesText += event.output_text;
     if (event.type === "response.output_text.delta" && typeof event.delta === "string") responsesText += event.delta;
+    if (event.type === "response.output_text.done" && typeof event.text === "string") responsesText = event.text;
+    if (event.type === "response.completed" && isPlainObject(event.response)) {
+      completedResponseText = extractResponseText(event.response) || completedResponseText;
+    }
     if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
       anthropicText += event.delta.text;
     }
@@ -509,8 +517,10 @@ function mergeKnownSseEvents(events) {
       }
     }
     if (Array.isArray(event.data)) modelItems.push(...event.data);
+    if (Array.isArray(event.models)) modelItems.push(...event.models);
   }
 
+  if (completedResponseText) return { output_text: completedResponseText };
   if (responsesText) return { output_text: responsesText };
   if (chatText) return { choices: [{ message: { content: chatText } }] };
   if (anthropicText) return { content: [{ type: "text", text: anthropicText }] };
@@ -519,22 +529,50 @@ function mergeKnownSseEvents(events) {
   return events.at(-1) ?? {};
 }
 
+function parseSseJsonEvents(raw) {
+  const blocks = [];
+  let dataLines = [];
+  const flush = () => {
+    const value = dataLines.join("\n").trim();
+    dataLines = [];
+    if (value && value !== "[DONE]") blocks.push(value);
+  };
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line) {
+      flush();
+      continue;
+    }
+    if (!line.startsWith("data:")) continue;
+    const value = line.slice(5).replace(/^ /, "");
+    if (value.trim() === "[DONE]") flush();
+    else dataLines.push(value);
+  }
+  flush();
+  if (!blocks.length) return null;
+
+  try {
+    return blocks.map((value) => JSON.parse(value));
+  } catch {
+    const lines = raw.split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .filter((value) => value && value !== "[DONE]");
+    return lines.map((value) => JSON.parse(value));
+  }
+}
+
 export function parseJsonResponseBody(raw) {
   const normalized = String(raw ?? "").replace(/^\uFEFF/, "").trim();
   if (!normalized) return {};
   try {
     return JSON.parse(normalized);
   } catch {
-    const dataLines = normalized.split(/\r?\n/)
-      .filter((line) => /^data:\s?/.test(line))
-      .map((line) => line.replace(/^data:\s?/, "").trim())
-      .filter((line) => line && line !== "[DONE]");
-    if (dataLines.length) {
-      try {
-        return mergeKnownSseEvents(dataLines.map((line) => JSON.parse(line)));
-      } catch {
-        // Fall through to the same safe error used for all unknown response bodies.
-      }
+    try {
+      const events = parseSseJsonEvents(normalized);
+      if (events) return mergeKnownSseEvents(events);
+    } catch {
+      // Fall through to the same safe error used for all unknown response bodies.
     }
     const error = new Error("API 响应不是合法 JSON");
     error.code = "invalid_response_json";
@@ -780,7 +818,7 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
 
   const listModels = async (payload = {}) => operation(payload, async (requestSignal, operationId) => {
     const saved = await readConfig();
-    const settings = validateSettingsForRequest(settingsFromDraft(payload, saved));
+    const settings = validateSettingsForRequest(settingsFromDraft(payload, saved), { requireModel: false });
     const candidates = modelsEndpointCandidates(settings.baseUrl);
     const body = await requestWithFiniteV1Fallback({
       fetchImpl,

@@ -549,6 +549,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
+  const placeComposerButton = (entry, anchor) => {
+    if (!anchor?.parentElement) return false;
+    anchor.parentElement.insertBefore(entry.button, anchor);
+    if (entry.restoreButton) entry.button.parentElement.insertBefore(entry.restoreButton, entry.button.nextSibling);
+    entry.anchor = anchor;
+    return true;
+  };
+
   const attachComposer = (composer) => {
     if (state.attached.has(composer) || composer.closest?.(`[${ROOT_ATTRIBUTE}]`)) return;
     const anchor = findComposerActionAnchor(composer);
@@ -562,7 +570,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }, [svgIcon(doc, "spark"), "优化"]);
     const entry = { element: composer, anchor, button, restoreButton: null, operation: null, busy: false };
     button.addEventListener("click", () => startOptimization(entry));
-    anchor.parentElement.insertBefore(button, anchor);
+    placeComposerButton(entry, anchor);
     state.attached.set(composer, entry);
   };
 
@@ -582,6 +590,10 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (state.panel && !panelSessionIsCurrent(state.panel)) closePanel();
     for (const entry of [...state.attached.values()]) {
       if (!entry.element.isConnected || !entry.button.isConnected) detachComposer(entry);
+      else {
+        const nextAnchor = findComposerActionAnchor(entry.element);
+        if (nextAnchor && nextAnchor !== entry.anchor) placeComposerButton(entry, nextAnchor);
+      }
     }
     for (const composer of findComposerCandidates(doc)) attachComposer(composer);
   };

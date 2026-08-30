@@ -130,6 +130,22 @@ test("recognizes the Auto listbox model selector used by Codex and Work composer
   assert.equal(findComposerActionAnchor(composer), picker);
 });
 
+test("recognizes a generic listbox trigger before the send action", () => {
+  const toolbar = new FakeElement("div", { "data-composer": "true" });
+  const picker = new FakeElement("div", { "aria-haspopup": "listbox", "aria-label": "模型选择" });
+  const submit = new FakeElement("button", { type: "submit", "aria-label": "发送" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  toolbar.append(picker, submit, composer);
+  toolbar.querySelectorAll = (selector) => {
+    if (selector.includes("[aria-haspopup]")) return [picker, submit];
+    if (selector.includes("button")) return [submit];
+    return [];
+  };
+
+  assert.equal(findModelPicker(composer), picker);
+  assert.equal(findComposerActionAnchor(composer), picker);
+});
+
 test("uses the submit action when a Codex or Work composer has no model picker", () => {
   const composerShell = new FakeElement("form", { "data-composer": "true" });
   const composer = new FakeElement("div", {
@@ -165,7 +181,8 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   assert.match(source, /MutationObserver/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
-  assert.match(source, /anchor\.parentElement\.insertBefore\(button, anchor\)/);
+  assert.match(source, /placeComposerButton/);
+  assert.match(source, /nextAnchor && nextAnchor !== entry\.anchor/);
   assert.match(source, /data-ctpo-drag-handle/);
   assert.match(source, /ResizeObserver/);
   assert.match(source, /doc\.addEventListener\("scroll", reflowPanel, true\)/);
