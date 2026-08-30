@@ -214,6 +214,29 @@ test("keeps an empty Composer in every mode beside its model picker, not its pro
   }
 });
 
+test("anchors the optimizer immediately before the Composer context window", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+  const contextWindow = new FakeElement("button", {
+    role: "button",
+    "aria-label": "Context window",
+  });
+  const modelPicker = new FakeElement("button", {
+    role: "button",
+    "aria-haspopup": "listbox",
+    "aria-label": "5.6 Luna 极高",
+  });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "" });
+  composerShell.append(contextWindow, modelPicker, composer);
+  composerShell.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) {
+      return [contextWindow, modelPicker];
+    }
+    return [];
+  };
+
+  assert.equal(findComposerActionAnchor(composer), contextWindow);
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
@@ -305,6 +328,11 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
+});
+
+test("keeps the optimizer button centered beside its semantic Composer anchor", async () => {
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(css, /\.ct-prompt-optimizer-button\s*\{(?=[^}]*align-self:\s*center;)(?=[^}]*flex:\s*0 0 auto;)(?=[^}]*vertical-align:\s*middle;)/s);
 });
 
 test("preview follows the Composer frame and emphasizes the optimized result", async () => {

@@ -230,6 +230,37 @@ export function findModelPicker(composer) {
     .sort((left, right) => right.score - left.score)[0]?.control ?? null;
 }
 
+function contextWindowScore(element) {
+  if (!element || isExcludedFromComposer(element)) return -1;
+  const role = element.getAttribute?.("role")?.toLowerCase();
+  const tagName = element.tagName?.toLowerCase();
+  const testId = element.getAttribute?.("data-testid")?.toLowerCase() ?? "";
+  const label = [
+    element.getAttribute?.("aria-label"),
+    element.getAttribute?.("title"),
+    testId,
+    element.textContent,
+  ].filter(Boolean).join(" ").toLowerCase();
+  const identity = `${label} ${String(element.className ?? "").toLowerCase()}`;
+  if (!/(?:context(?:[\s_-]+(?:window|usage|limit))?|上下文(?:窗口)?|背景信息|background[\s_-]+(?:info|information|window))/.test(identity)) return -1;
+  let score = 1;
+  if (/context[\s_-]*(?:window|usage|limit)|上下文窗口|背景信息|background[\s_-]+(?:info|information|window)/.test(identity)) score += 6;
+  if (/context|上下文|背景信息/.test(testId)) score += 8;
+  if (tagName === "button" || ["button", "combobox"].includes(role)) score += 3;
+  return score;
+}
+
+function findComposerContextWindow(composer) {
+  const region = findComposerRegion(composer);
+  const controls = [...(region?.querySelectorAll?.(
+    "button, [role=button], [role=combobox], [aria-haspopup], [aria-label], [title], [data-testid], select",
+  ) ?? [])];
+  return controls
+    .map((control) => ({ control, score: contextWindowScore(control) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.control ?? null;
+}
+
 function isComposerSubmitControl(element) {
   if (!element || isExcludedFromComposer(element)) return false;
   const tagName = element.tagName?.toLowerCase();
@@ -247,6 +278,8 @@ function isComposerSubmitControl(element) {
 }
 
 export function findComposerActionAnchor(composer) {
+  const contextWindow = findComposerContextWindow(composer);
+  if (contextWindow?.parentElement) return contextWindow;
   const modelPicker = findModelPicker(composer);
   if (modelPicker?.parentElement) return modelPicker;
   const submitControl = findComposerControl(composer, "button, [role=button]", isComposerSubmitControl);
