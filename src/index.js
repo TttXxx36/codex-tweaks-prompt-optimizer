@@ -91,6 +91,7 @@ function svgIcon(doc, name) {
     trash: "M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3",
     check: "M5 12l4 4L19 6",
     cancel: "M6 6l12 12M18 6L6 18",
+    chevron: "m7 10 5 5 5-5",
   };
   const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("aria-hidden", "true");
@@ -165,6 +166,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     panelResizeObserver: null,
     panelDragCleanup: null,
     panelContextCleanup: null,
+    composerMenu: null,
+    settingsDialog: null,
     uiRoot: null,
     composerButtonHost: null,
     notice: { text: "", kind: "" },
@@ -183,12 +186,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   composerButtonHost.style.position = "fixed";
   composerButtonHost.style.zIndex = "2147482999";
   const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
+  const settingsDialogHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-settings-dialog-host" });
   const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host", "aria-live": "polite", "aria-atomic": "true" });
-  uiRoot.append(composerButtonHost, panelHost, toastHost);
+  uiRoot.append(composerButtonHost, panelHost, settingsDialogHost, toastHost);
   overlayParent.append(uiRoot);
   state.uiRoot = uiRoot;
   state.composerButtonHost = composerButtonHost;
   state.panelHost = panelHost;
+  state.settingsDialogHost = settingsDialogHost;
 
   const setNotice = (text, kind = "") => {
     state.notice = { text, kind };
@@ -437,6 +442,44 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     entry.button.title = busy ? "取消当前优化请求" : "优化当前提示词";
   };
 
+  const closeComposerMenu = () => {
+    state.composerMenu?.entry?.menuButton?.setAttribute("aria-expanded", "false");
+    state.composerMenu?.element?.remove();
+    state.composerMenu = null;
+  };
+
+  const openComposerMenu = (entry) => {
+    if (!entry?.button || !state.composerButtonHost) return;
+    if (state.composerMenu?.entry === entry) {
+      closeComposerMenu();
+      return;
+    }
+    closeComposerMenu();
+    const menu = element(doc, "div", {
+      className: "ctpo-composer-menu",
+      role: "menu",
+      "aria-label": "提示词优化菜单",
+    });
+    const settings = element(doc, "button", { type: "button", role: "menuitem" }, ["提示词优化设置"]);
+    settings.addEventListener("click", () => openSettings());
+    const history = element(doc, "button", { type: "button", role: "menuitem" }, ["优化历史"]);
+    history.addEventListener("click", () => openSettings({ focusHistory: true }));
+    menu.append(settings, history);
+    state.composerButtonHost.append(menu);
+    const triggerRect = entry.button.getBoundingClientRect?.();
+    const menuRect = menu.getBoundingClientRect?.();
+    const viewport = viewportSize();
+    const width = Number(menuRect?.width) || 176;
+    const height = Number(menuRect?.height) || 72;
+    const left = Math.max(8, Math.min((Number(triggerRect?.right) || 8) - width, viewport.width - width - 8));
+    const top = Math.max(8, Math.min((Number(triggerRect?.bottom) || 8) + 4, viewport.height - height - 8));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    state.composerMenu = { entry, element: menu };
+    entry.menuButton?.setAttribute("aria-expanded", "true");
+    settings.focus?.();
+  };
+
   const ensureRestoreButton = (entry, snapshot) => {
     if (!entry?.button || !state.composerButtonHost || !snapshot) return;
     if (state.latestRestoreEntry && state.latestRestoreEntry !== entry) {
@@ -495,6 +538,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
   const startOptimization = async (entry) => {
     if (!entry || state.disposed) return;
+    closeComposerMenu();
+    closeSettingsDialog();
     if (entry.busy) {
       const operation = entry.operation;
       const panelOperation = state.panel?.context?.element === entry.element && state.panel.operationId
@@ -569,6 +614,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const anchorRect = entry.anchor?.getBoundingClientRect?.();
     if (!anchorRect || !state.composerButtonHost) {
       entry.button.hidden = true;
+      if (entry.menuButton) entry.menuButton.hidden = true;
       if (entry.restoreButton) entry.restoreButton.hidden = true;
       return false;
     }
@@ -576,18 +622,37 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     entry.button.style.position = "fixed";
     entry.button.style.zIndex = "2147482999";
     entry.button.hidden = false;
+    if (entry.menuButton) {
+      entry.menuButton.style.pointerEvents = "auto";
+      entry.menuButton.style.position = "fixed";
+      entry.menuButton.style.zIndex = "2147482999";
+      entry.menuButton.hidden = false;
+    }
     const buttonRect = entry.button.getBoundingClientRect?.() ?? {};
-    const position = getComposerButtonPosition(anchorRect, buttonRect, viewportSize());
+    const menuRect = entry.menuButton?.getBoundingClientRect?.() ?? {};
+    const buttonWidth = Number(buttonRect.width) || 0;
+    const menuWidth = Number(menuRect.width) || 0;
+    const groupWidth = buttonWidth + (menuWidth > 0 ? menuWidth + 2 : 0);
+    const position = getComposerButtonPosition(anchorRect, {
+      width: groupWidth,
+      height: Math.max(Number(buttonRect.height) || 0, Number(menuRect.height) || 0),
+    }, viewportSize());
     if (!position) {
       entry.button.hidden = true;
+      if (entry.menuButton) entry.menuButton.hidden = true;
       if (entry.restoreButton) entry.restoreButton.hidden = true;
       return false;
     }
     entry.button.style.left = `${position.left}px`;
     entry.button.style.top = `${position.top}px`;
+    if (entry.menuButton) {
+      entry.menuButton.hidden = false;
+      entry.menuButton.style.left = `${position.left + buttonWidth + 2}px`;
+      entry.menuButton.style.top = `${position.top}px`;
+    }
     if (entry.restoreButton) {
       entry.restoreButton.hidden = false;
-      entry.restoreButton.style.left = `${position.left + (Number(buttonRect.width) || 0) + 4}px`;
+      entry.restoreButton.style.left = `${position.left + groupWidth + 4}px`;
       entry.restoreButton.style.top = `${position.top}px`;
     }
     return true;
@@ -596,6 +661,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const placeComposerButton = (entry, anchor) => {
     if (!anchor?.parentElement || !state.composerButtonHost) return false;
     if (entry.button.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.button);
+    if (entry.menuButton?.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.menuButton);
     if (entry.restoreButton && entry.restoreButton.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.restoreButton);
     entry.anchor = anchor;
     return positionComposerButton(entry);
@@ -613,14 +679,26 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "data-codex-tweaks-prompt-optimizer": "button",
       hidden: true,
     }, [svgIcon(doc, "spark"), "优化"]);
-    const entry = { element: composer, anchor, button, restoreButton: null, operation: null, busy: false };
+    const menuButton = element(doc, "button", {
+      type: "button",
+      className: "ct-prompt-optimizer-menu-button",
+      "aria-label": "打开提示词优化菜单",
+      "aria-haspopup": "menu",
+      "aria-expanded": "false",
+      title: "提示词优化菜单",
+      hidden: true,
+    }, [svgIcon(doc, "chevron")]);
+    const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false };
     button.addEventListener("click", () => startOptimization(entry));
+    menuButton.addEventListener("click", () => openComposerMenu(entry));
     placeComposerButton(entry, anchor);
     state.attached.set(composer, entry);
   };
 
   const detachComposer = (entry) => {
+    if (state.composerMenu?.entry === entry) closeComposerMenu();
     entry.button?.remove();
+    entry.menuButton?.remove();
     entry.restoreButton?.remove();
     state.attached.delete(entry.element);
   };
@@ -641,6 +719,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         else if (nextAnchor) positionComposerButton(entry);
         else {
           entry.button.hidden = true;
+          if (entry.menuButton) entry.menuButton.hidden = true;
           if (entry.restoreButton) entry.restoreButton.hidden = true;
         }
       }
@@ -659,6 +738,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const nextAnchor = findComposerActionAnchor(entry.element);
       if (!nextAnchor) {
         entry.button.hidden = true;
+        if (entry.menuButton) entry.menuButton.hidden = true;
         if (entry.restoreButton) entry.restoreButton.hidden = true;
       } else if (nextAnchor !== entry.anchor) {
         placeComposerButton(entry, nextAnchor);
@@ -705,7 +785,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const buildSettingsView = (container) => {
+  const buildSettingsView = (container, { embedded = false } = {}) => {
     const view = {
       id: makeId("settings"),
       container,
@@ -736,7 +816,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         element(doc, "h1", { className: "ctpo-title" }, ["提示词优化"]),
         element(doc, "p", { className: "ctpo-description" }, ["只处理当前 Composer 中的提示词，并通过你指定的 API 生成可直接使用的优化结果。不会读取会话历史、文件、附件或项目上下文。"]),
       ]);
-      wrapper.append(header);
+      if (!embedded) wrapper.append(header);
 
       const generalCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-general` });
       generalCard.append(element(doc, "h2", { id: `${view.id}-general` }, ["基本设置"]));
@@ -893,7 +973,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       providerCard.append(actions, saveFeedback);
       wrapper.append(providerCard);
 
-      const historyCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-history` });
+      const historyCard = element(doc, "section", {
+        className: "ctpo-card",
+        "aria-labelledby": `${view.id}-history`,
+        "data-ctpo-settings-section": "history",
+      });
       historyCard.append(element(doc, "h2", { id: `${view.id}-history` }, ["优化历史"]));
       const historyActions = element(doc, "div", { className: "ctpo-actions" });
       const clearHistory = actionButton(doc, "清空历史", "clear-history", { icon: "trash", kind: "danger" });
@@ -1188,10 +1272,27 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   }
 
   const onDocumentKeyDown = (event) => {
-    if (event.key === "Escape" && state.panel) {
+    if (event.key !== "Escape") return;
+    if (state.settingsDialog) {
+      event.preventDefault?.();
+      closeSettingsDialog({ restoreFocus: true });
+      return;
+    }
+    if (state.composerMenu) {
+      event.preventDefault?.();
+      closeComposerMenu();
+      return;
+    }
+    if (state.panel) {
       event.preventDefault?.();
       closePanel();
     }
+  };
+
+  const onDocumentPointerDown = (event) => {
+    const menu = state.composerMenu;
+    if (!menu || menu.element.contains(event.target) || menu.entry.menuButton?.contains?.(event.target)) return;
+    closeComposerMenu();
   };
 
   async function copyText(text) {
@@ -1224,7 +1325,72 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  let settingsRegistration;
+  let settingsRegistration = null;
+  const closeSettingsDialog = ({ restoreFocus = false } = {}) => {
+    const dialog = state.settingsDialog;
+    state.settingsDialog = null;
+    dialog?.cleanup?.();
+    dialog?.backdrop?.remove();
+    if (restoreFocus && dialog?.returnFocus?.isConnected) dialog.returnFocus.focus?.();
+  };
+
+  const openSettingsDialog = ({ focusHistory = false } = {}) => {
+    closePanel();
+    closeSettingsDialog();
+    const HTMLElementCtor = doc.defaultView?.HTMLElement;
+    const returnFocus = HTMLElementCtor && doc.activeElement instanceof HTMLElementCtor
+      ? doc.activeElement
+      : null;
+    const backdrop = element(doc, "div", {
+      className: "ctpo-settings-dialog-backdrop",
+      "data-ctpo-settings-dialog": "true",
+    });
+    const dialog = element(doc, "section", {
+      className: "ctpo-settings-dialog",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "ctpo-settings-dialog-title",
+    });
+    const header = element(doc, "header", { className: "ctpo-settings-dialog-header" }, [
+      element(doc, "h2", { id: "ctpo-settings-dialog-title" }, ["提示词优化设置"]),
+    ]);
+    const close = element(doc, "button", {
+      type: "button",
+      className: "ctpo-panel-close",
+      "aria-label": "关闭提示词优化设置",
+      title: "关闭",
+    }, [svgIcon(doc, "close")]);
+    close.addEventListener("click", () => closeSettingsDialog({ restoreFocus: true }));
+    header.append(close);
+    const content = element(doc, "div", { className: "ctpo-settings-dialog-content" });
+    dialog.append(header, content);
+    backdrop.append(dialog);
+    state.settingsDialogHost?.append(backdrop);
+    const cleanup = buildSettingsView(content, { embedded: true });
+    state.settingsDialog = { backdrop, cleanup, returnFocus };
+    backdrop.addEventListener("pointerdown", (event) => {
+      if (event.target === backdrop) closeSettingsDialog({ restoreFocus: true });
+    });
+    const history = focusHistory
+      ? content.querySelector?.('[data-ctpo-settings-section="history"]')
+      : null;
+    if (history) history.scrollIntoView?.({ block: "start" });
+    else close.focus?.();
+  };
+
+  const openSettings = ({ focusHistory = false } = {}) => {
+    closeComposerMenu();
+    if (!focusHistory && typeof settingsRegistration?.open === "function") {
+      try {
+        settingsRegistration.open();
+        return;
+      } catch (error) {
+        setNotice(`原生设置页不可用，已打开包内设置：${error.message}`, "error");
+      }
+    }
+    openSettingsDialog({ focusHistory });
+  };
+
   const registerSettings = () => {
     const register = ui?.settingsSections?.register;
     if (typeof register !== "function") return;
@@ -1254,12 +1420,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     doc.removeEventListener("scroll", reflowPanel, true);
     doc.removeEventListener("scroll", reflowComposerButtons, true);
     doc.removeEventListener("keydown", onDocumentKeyDown);
+    doc.removeEventListener("pointerdown", onDocumentPointerDown, true);
     state.toastTimer = null;
     for (const entry of [...state.attached.values()]) detachComposer(entry);
     for (const operation of state.activeOperations.values()) {
       node?.invoke?.(operation.method, { operationId: operation.id, cancel: true }).catch?.(() => {});
     }
     state.activeOperations.clear();
+    closeComposerMenu();
+    closeSettingsDialog();
     settingsRegistration?.unregister?.();
     settingsRegistration?.dispose?.();
     clearPanelInteractions();
@@ -1273,6 +1442,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   doc.addEventListener("scroll", reflowPanel, true);
   doc.addEventListener("scroll", reflowComposerButtons, true);
   doc.addEventListener("keydown", onDocumentKeyDown);
+  doc.addEventListener("pointerdown", onDocumentPointerDown, true);
   state.observer = new MutationObserver((records) => {
     if (records.some(({ target }) => !uiRoot.contains(target))) scheduleScan();
   });

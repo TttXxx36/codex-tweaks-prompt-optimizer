@@ -284,6 +284,19 @@ test("marks the settings UI extension optional for hosts without the adapter", a
   assert.equal(manifest.codexTweaks?.ui?.settingsSections?.required, false);
 });
 
+test("offers a package-owned settings fallback while preferring the native settings route", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /ctpo-composer-menu/);
+  assert.match(source, /提示词优化设置/);
+  assert.match(source, /优化历史/);
+  assert.match(source, /typeof settingsRegistration\?\.open === "function"/);
+  assert.match(source, /settingsRegistration\.open\(\)/);
+  assert.match(source, /openSettingsDialog\(\{ focusHistory \}\)/);
+  assert.match(source, /buildSettingsView\(content, \{ embedded: true \}\)/);
+  assert.match(source, /closeSettingsDialog\(\{ restoreFocus: true \}\)/);
+  assert.match(source, /doc\.removeEventListener\("pointerdown", onDocumentPointerDown, true\)/);
+});
+
 test("places the overlay button left of and vertically centered on its Composer anchor", () => {
   assert.deepEqual(
     getComposerButtonPosition(
@@ -403,6 +416,8 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
+  assert.match(css, /\.ctpo-settings-dialog-backdrop\s*\{(?=[^}]*align-items:\s*center;)(?=[^}]*justify-content:\s*center;)(?=[^}]*position:\s*absolute;)/s);
+  assert.match(css, /\.ctpo-settings-dialog\s*\{(?=[^}]*max-height:\s*min\(820px, calc\(100vh - 48px\)\);)(?=[^}]*overflow:\s*hidden;)/s);
 });
 
 test("keeps the optimizer button centered beside its semantic Composer anchor", async () => {
