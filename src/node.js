@@ -485,6 +485,63 @@ function authHeaders(protocol, apiKey) {
   return headers;
 }
 
+function mergeKnownSseEvents(events) {
+  let responsesText = "";
+  let chatText = "";
+  let anthropicText = "";
+  const modelItems = [];
+
+  for (const event of events) {
+    if (!isPlainObject(event)) continue;
+    if (typeof event.output_text === "string") responsesText += event.output_text;
+    if (event.type === "response.output_text.delta" && typeof event.delta === "string") responsesText += event.delta;
+    if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
+      anthropicText += event.delta.text;
+    }
+    if (Array.isArray(event.choices)) {
+      for (const choice of event.choices) {
+        if (typeof choice?.delta?.content === "string") chatText += choice.delta.content;
+        else if (typeof choice?.message?.content === "string") chatText += choice.message.content;
+        else {
+          const content = textFromContentArray(choice?.delta?.content ?? choice?.message?.content);
+          if (content) chatText += content;
+        }
+      }
+    }
+    if (Array.isArray(event.data)) modelItems.push(...event.data);
+  }
+
+  if (responsesText) return { output_text: responsesText };
+  if (chatText) return { choices: [{ message: { content: chatText } }] };
+  if (anthropicText) return { content: [{ type: "text", text: anthropicText }] };
+  if (modelItems.length) return { data: modelItems };
+  if (events.length === 1) return events[0];
+  return events.at(-1) ?? {};
+}
+
+export function parseJsonResponseBody(raw) {
+  const normalized = String(raw ?? "").replace(/^\uFEFF/, "").trim();
+  if (!normalized) return {};
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    const dataLines = normalized.split(/\r?\n/)
+      .filter((line) => /^data:\s?/.test(line))
+      .map((line) => line.replace(/^data:\s?/, "").trim())
+      .filter((line) => line && line !== "[DONE]");
+    if (dataLines.length) {
+      try {
+        return mergeKnownSseEvents(dataLines.map((line) => JSON.parse(line)));
+      } catch {
+        // Fall through to the same safe error used for all unknown response bodies.
+      }
+    }
+    const error = new Error("API 响应不是合法 JSON");
+    error.code = "invalid_response_json";
+    throw error;
+  }
+}
+
 async function requestJson({ fetchImpl, url, protocol, apiKey, method = "POST", body, signal, timeoutMs = REQUEST_TIMEOUT_MS }) {
   if (typeof fetchImpl !== "function") {
     const error = new Error("当前 Node 运行时不支持 fetch");
@@ -513,14 +570,7 @@ async function requestJson({ fetchImpl, url, protocol, apiKey, method = "POST", 
       error.code = response.status === 404 ? "http_404" : "http_error";
       throw error;
     }
-    if (!raw.trim()) return {};
-    try {
-      return JSON.parse(raw);
-    } catch {
-      const error = new Error("API 响应不是合法 JSON");
-      error.code = "invalid_response_json";
-      throw error;
-    }
+    return parseJsonResponseBody(raw);
   } catch (error) {
     if (timedOut) {
       const timeoutError = new Error("请求超时，请稍后重试");
@@ -922,3 +972,4 @@ export function activate({ rpc, dataDirectory, signal } = {}) {
     },
   };
 }
+

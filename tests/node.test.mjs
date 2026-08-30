@@ -14,6 +14,7 @@ import {
   endpointCandidates,
   extractResponseText,
   modelsEndpointCandidates,
+  parseJsonResponseBody,
   parseClarificationJson,
   redactSettings,
   sanitizeError,
@@ -117,6 +118,22 @@ test("extracts known response shapes and rejects malformed clarification JSON", 
   assert.throws(() => parseClarificationJson('{"questions":["1","2","3","4"],"readyToGenerate":false}'), /数量/);
 });
 
+test("accepts a BOM-prefixed JSON response and finite known SSE envelopes", () => {
+  assert.deepEqual(parseJsonResponseBody('\ufeff {"output_text":"OK"}'), { output_text: "OK" });
+  assert.deepEqual(parseJsonResponseBody([
+    'data: {"type":"response.output_text.delta","delta":"O"}',
+    '',
+    'data: {"type":"response.output_text.delta","delta":"K"}',
+    '',
+    'data: [DONE]',
+  ].join("\n")), { output_text: "OK" });
+  assert.deepEqual(parseJsonResponseBody([
+    'data: {"choices":[{"delta":{"content":"O"}}]}',
+    'data: {"choices":[{"delta":{"content":"K"}}]}',
+    'data: [DONE]',
+  ].join("\n")), { choices: [{ message: { content: "OK" } }] });
+});
+
 test("supports all three protocols and finite /v1 fallback without streaming", async (t) => {
   const calls = [];
   const server = await makeServer(async (request, response) => {
@@ -154,6 +171,52 @@ test("supports all three protocols and finite /v1 fallback without streaming", a
   assert.equal(calls.filter((call) => call.url === "/responses").length, 1);
   assert.equal(calls.filter((call) => call.url === "/chat/completions").length, 1);
   assert.equal(calls.filter((call) => call.url === "/v1/messages").length, 1);
+});
+
+test("list-models and test-connection accept complete known SSE responses for OpenAI-compatible providers", async (t) => {
+  const server = await makeServer(async (request, response) => {
+    if (request.method === "POST") await readRequest(request);
+    if (request.method === "GET" && request.url === "/models") {
+      response.setHeader("content-type", "application/json");
+      response.end('\ufeff{"data":[{"id":"test-model"}]}');
+      return;
+    }
+    response.setHeader("content-type", "text/event-stream");
+    if (request.url === "/responses") {
+      response.end([
+        'data: {"type":"response.output_text.delta","delta":"O"}',
+        '',
+        'data: {"type":"response.output_text.delta","delta":"K"}',
+        '',
+        'data: [DONE]',
+      ].join("\n"));
+    } else if (request.url === "/chat/completions") {
+      response.end([
+        'data: {"choices":[{"delta":{"content":"O"}}]}',
+        'data: {"choices":[{"delta":{"content":"K"}}]}',
+        'data: [DONE]',
+      ].join("\n"));
+    } else if (request.url === "/v1/messages") {
+      response.end(JSON.stringify({ content: [{ type: "text", text: "OK" }] }));
+    } else {
+      response.statusCode = 404;
+      response.end("not found");
+    }
+  });
+  t.after(() => server.close());
+
+  for (const protocol of ["openaiResponses", "openaiChatCompletions", "anthropicMessages"]) {
+    const fixture = await withRuntime(server, protocol);
+    try {
+      const models = await fixture.runtime.invoke("list-models", { operationId: `models-${protocol}` });
+      assert.equal(models.status, "ok", `${protocol}: ${JSON.stringify(models)}`);
+      assert.deepEqual(models.models, ["test-model"]);
+      const connection = await fixture.runtime.invoke("test-connection", { operationId: `connection-${protocol}` });
+      assert.equal(connection.status, "ok", `${protocol}: ${JSON.stringify(connection)}`);
+    } finally {
+      await fixture.cleanup();
+    }
+  }
 });
 
 test("keeps draft connection tests out of persisted settings and never returns the Key", async (t) => {
@@ -316,3 +379,4 @@ test("registers exactly the fixed Node RPC surface and cleans registrations", as
     await rm(dataDirectory, { recursive: true, force: true });
   }
 });
+

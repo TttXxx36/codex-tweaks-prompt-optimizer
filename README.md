@@ -2,7 +2,7 @@
 
 为 Codex Composer 提供提示词优化功能的 Codex Tweaks 第三方功能包。
 
-当前包 ID 为 `ct-prompt-optimizer`，当前发布版本为 `v0.1.2`。包只实现 Codex Tweaks API v3 公开生命周期，不复制 Codey 源码，也不依赖 Codey 的私有 bridge。
+当前包 ID 为 `ct-prompt-optimizer`，当前发布版本为 `v0.1.3`。包只实现 Codex Tweaks API v3 公开生命周期，不复制 Codey 源码，也不依赖 Codey 的私有 bridge。
 
 ## 功能
 
@@ -10,7 +10,7 @@
 - 在 Composer 的模型选择器附近提供“优化”按钮。
 - 支持直接替换、预览后应用、多轮澄清三种模式。
 - 支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 三种非流式协议。
-- 支持模型列表探测、HTTPS/本机 HTTP 校验、有限 `/v1` 回退、60 秒超时和有限响应解析。
+- 支持模型列表探测、HTTPS/本机 HTTP 校验、有限 `/v1` 回退、60 秒超时和有限响应解析（包括 BOM 与已完整收集的标准 SSE `data` 包装）。
 - 提供可编辑的默认优化指令、历史记录、历史预览和最近一次恢复快照。
 
 ## 隐私与权限
@@ -64,3 +64,4 @@ npm run check
 ## 许可证
 
 MIT，详见 [LICENSE](LICENSE)。
+
