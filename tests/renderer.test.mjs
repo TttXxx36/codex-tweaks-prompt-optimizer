@@ -273,7 +273,10 @@ test("positions the optimizer in its own overlay instead of mutating the host to
   assert.match(source, /composerButtonHost/);
   assert.match(source, /positionComposerButton/);
   assert.match(source, /composerButtonHost\.style\.position\s*=\s*["']fixed["']/);
+  assert.match(source, /composerButtonHost\.style\.pointerEvents\s*=\s*["']none["']/);
   assert.match(source, /entry\.button\.style\.position\s*=\s*["']fixed["']/);
+  assert.match(source, /entry\.button\.style\.pointerEvents\s*=\s*["']auto["']/);
+  assert.match(source, /entry\.menuButton\.style\.pointerEvents\s*=\s*["']auto["']/);
   assert.match(source, /hidden:\s*true/);
   assert.doesNotMatch(source, /anchor\.parentElement\.insertBefore\(entry\.button, anchor\)/);
   assert.doesNotMatch(source, /entry\.button\.parentElement\.insertBefore/);
@@ -297,15 +300,13 @@ test("offers a package-owned settings fallback while preferring the native setti
   assert.match(source, /doc\.removeEventListener\("pointerdown", onDocumentPointerDown, true\)/);
 });
 
-test("places the overlay button left of and vertically centered on its Composer anchor", () => {
-  assert.deepEqual(
-    getComposerButtonPosition(
-      { left: 1130, top: 220, height: 28 },
-      { width: 74, height: 28 },
-      { width: 1500, height: 800 },
-    ),
-    { left: 1050, top: 220 },
-  );
+test("keeps the overlay button group 24px left of and vertically centered on its Composer anchor", () => {
+  const anchor = { left: 1130, top: 220, height: 28 };
+  const group = { width: 74, height: 28 };
+  const position = getComposerButtonPosition(anchor, group, { width: 1500, height: 800 });
+
+  assert.deepEqual(position, { left: 1032, top: 220 });
+  assert.ok(position.left + group.width + 24 <= anchor.left);
 });
 
 test("accepts x/y rectangles from host layout shims", () => {
@@ -315,7 +316,7 @@ test("accepts x/y rectangles from host layout shims", () => {
       { width: 74, height: 28 },
       { width: 1500, height: 800 },
     ),
-    { left: 1050, top: 220 },
+    { left: 1032, top: 220 },
   );
 });
 

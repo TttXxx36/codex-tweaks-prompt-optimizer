@@ -290,7 +290,7 @@ export function findComposerActionAnchor(composer) {
   return submitControl?.parentElement ? submitControl : null;
 }
 
-export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport = {}, gap = 6) {
+export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport = {}, gap = 24) {
   const leftValue = Number(anchorRect?.left);
   const topValue = Number(anchorRect?.top);
   const left = Number.isFinite(leftValue) ? leftValue : Number(anchorRect?.x);
