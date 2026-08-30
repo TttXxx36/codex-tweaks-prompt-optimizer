@@ -8,6 +8,7 @@ import {
   findBestComposer,
   findComposerActionAnchor,
   findComposerCandidates,
+  findComposerRegion,
   isSameComposerContext,
   readInputText,
   replaceInputText,
@@ -262,8 +263,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
   const panelAnchorElement = (panelState) => {
     const contextElement = panelState?.context?.element;
-    if (contextElement?.isConnected !== false && contextElement?.getBoundingClientRect) return contextElement;
-    return currentComposer();
+    if (contextElement?.isConnected !== false && contextElement?.getBoundingClientRect) return findComposerRegion(contextElement) ?? contextElement;
+    const composer = currentComposer();
+    return findComposerRegion(composer) ?? composer;
   };
 
   const panelAnchorRect = (panelState) => {
