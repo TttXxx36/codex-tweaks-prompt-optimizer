@@ -22,5 +22,6 @@
 ## Result
 
 - Git smart-HTTP 因当前 Schannel/凭据环境无错误正文失败；改用已登录的 GitHub CLI Git Data API 创建树和提交，不暴露 Token。
-- GitHub API 已创建发布树 `0b9d7ba3` 和提交 `0e90f4a8`，待本次审计记录提交后一起快进更新 `main`。
+- GitHub API 已创建发布树 `0b9d7ba3` 和提交 `0e90f4a8`，随后以审计记录提交 `7d21c647` 非强制快进更新 `main`。
+- 发布后核验：`main=7d21c647`，备份分支仍为 `094367ce`；未创建 Release。
 - 不创建 Release。
