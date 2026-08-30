@@ -291,8 +291,10 @@ export function findComposerActionAnchor(composer) {
 }
 
 export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport = {}, gap = 6) {
-  const left = Number(anchorRect?.left);
-  const top = Number(anchorRect?.top);
+  const leftValue = Number(anchorRect?.left);
+  const topValue = Number(anchorRect?.top);
+  const left = Number.isFinite(leftValue) ? leftValue : Number(anchorRect?.x);
+  const top = Number.isFinite(topValue) ? topValue : Number(anchorRect?.y);
   const anchorHeight = Number.isFinite(Number(anchorRect?.height))
     ? Number(anchorRect.height)
     : Number(anchorRect?.bottom) - top;

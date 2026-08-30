@@ -1,6 +1,6 @@
 # Session state (Shisan Xinuo Agent Workflow)
 
-- Current goal: 维护优化按钮在 Composer 宿主布局和背景信息窗口状态变化下的稳定定位。
-- Decisions made: 保留自由输入框，增加真实的 `select` 作为已获取模型的选择入口；不改动 Node RPC 和网络协议。
+- Current goal: 修复优化按钮在独立固定层中退回页面左上角的定位回归。
+- Decisions made: 保留独立固定层以避免改写宿主工具栏；运行时强制固定定位，按钮只有在获得有效 Composer 锚点坐标后才显示；不改动 Node RPC 和网络协议。
 - Constraints: 获取到的全部模型必须可见可选；手动输入仍可用；模型列表只保留当前页面生命周期，不写入 Provider 配置。
-- Progress + next step: 已完成宿主布局隔离、背景信息窗口打开/关闭回退、全量验证，并通过 GitHub API 同步到 `main` 提交 `9bc5e10`；待用户验收实际 Codex 视觉表现，未创建新 Release。
+- Progress + next step: 已完成左上角回归的失败用例、内联定位保护、无效矩形隐藏和 `x/y` 兼容；待完成最终验证、提交并推送，未创建新 Release。
