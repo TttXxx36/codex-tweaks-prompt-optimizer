@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const CONFIG_FILE = "config.json";
 const HISTORY_FILE = "history.json";
-const PACKAGE_VERSION = "0.1.6";
+const PACKAGE_VERSION = "0.1.7";
 
 function asTrimmedString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -563,6 +563,14 @@ function parseSseJsonEvents(raw) {
 }
 
 export function parseJsonResponseBody(raw) {
+  return parseApiResponseBody(raw);
+}
+
+function isHtmlResponse(contentType) {
+  return String(contentType ?? "").split(";", 1)[0].trim().toLowerCase() === "text/html";
+}
+
+function parseApiResponseBody(raw, contentType = "") {
   const normalized = String(raw ?? "").replace(/^\uFEFF/, "").trim();
   if (!normalized) return {};
   try {
@@ -574,8 +582,8 @@ export function parseJsonResponseBody(raw) {
     } catch {
       // Fall through to the same safe error used for all unknown response bodies.
     }
-    const error = new Error("API 响应不是合法 JSON");
-    error.code = "invalid_response_json";
+    const error = new Error(isHtmlResponse(contentType) ? "API 地址返回了网页，而不是 API 响应" : "API 响应不是合法 JSON");
+    error.code = isHtmlResponse(contentType) ? "html_response" : "invalid_response_json";
     throw error;
   }
 }
@@ -608,7 +616,7 @@ async function requestJson({ fetchImpl, url, protocol, apiKey, method = "POST", 
       error.code = response.status === 404 ? "http_404" : "http_error";
       throw error;
     }
-    return parseJsonResponseBody(raw);
+    return parseApiResponseBody(raw, response.headers?.get?.("content-type"));
   } catch (error) {
     if (timedOut) {
       const timeoutError = new Error("请求超时，请稍后重试");
@@ -634,7 +642,8 @@ async function requestWithFiniteV1Fallback(options, candidates) {
       return await requestJson({ ...options, url: candidates[index] });
     } catch (error) {
       lastError = error;
-      if (error?.code !== "http_404" || index === candidates.length - 1) throw error;
+      const canUseV1Fallback = error?.code === "http_404" || error?.code === "html_response";
+      if (!canUseV1Fallback || index === candidates.length - 1) throw error;
     }
   }
   throw lastError;

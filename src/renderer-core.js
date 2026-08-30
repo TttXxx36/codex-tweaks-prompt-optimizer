@@ -176,6 +176,7 @@ function isComposerRegion(element) {
   const testId = element.getAttribute?.("data-testid")?.toLowerCase() ?? "";
   return tagName === "form"
     || element.getAttribute?.("data-composer") != null
+    || element.getAttribute?.("data-composer-placement") != null
     || /composer/.test(testId);
 }
 
