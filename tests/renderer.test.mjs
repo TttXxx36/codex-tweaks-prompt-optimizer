@@ -171,6 +171,21 @@ test("finds a model picker in an outer Composer region before falling back to se
   assert.equal(findComposerActionAnchor(composer), picker);
 });
 
+test("finds the model picker in Codex data-composer-placement shells", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
+  const picker = new FakeElement("button", { role: "button", "aria-haspopup": "listbox", "aria-label": "Auto" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  const inputWrapper = new FakeElement("div");
+  composerShell.append(picker, inputWrapper);
+  inputWrapper.append(composer);
+  composerShell.querySelectorAll = (selector) => selector.includes("button") || selector.includes("[aria-haspopup]") ? [picker] : [];
+  inputWrapper.querySelectorAll = () => [];
+
+  assert.equal(findComposerRegion(composer), composerShell);
+  assert.equal(findModelPicker(composer), picker);
+  assert.equal(findComposerActionAnchor(composer), picker);
+});
+
 test("uses the nearest Composer frame for panel anchoring", () => {
   const composerRegion = new FakeElement("section", { "data-composer": "true" });
   const nested = new FakeElement("div");
@@ -214,7 +229,7 @@ test("renderer source declares lifecycle, semantic observation, fixed RPC names 
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /activate\(\{ root, onCleanup, api: _api, ui, node \}/);
   assert.match(source, /MutationObserver/);
-  assert.match(source, /attributeFilter:\s*\["aria-label", "aria-haspopup", "data-testid", "role", "title"\]/);
+  assert.match(source, /attributeFilter:\s*\["aria-label", "aria-haspopup", "data-composer-placement", "data-testid", "role", "title"\]/);
   assert.match(source, /data-codex-tweaks-prompt-optimizer/);
   assert.match(source, /findComposerActionAnchor/);
   assert.match(source, /placeComposerButton/);

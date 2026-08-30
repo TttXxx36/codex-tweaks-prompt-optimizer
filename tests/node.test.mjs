@@ -261,6 +261,49 @@ test("list-models and test-connection accept complete known SSE responses for Op
   }
 });
 
+test("uses the /v1 API route when a bare OpenAI-compatible address serves an HTML application shell", async (t) => {
+  const calls = [];
+  const server = await makeServer(async (request, response) => {
+    calls.push(`${request.method} ${request.url}`);
+    if (request.method === "POST") await readRequest(request);
+    if (["/models", "/responses", "/chat/completions"].includes(request.url)) {
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end("<!doctype html><title>Application</title>");
+      return;
+    }
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/v1/models") response.end(JSON.stringify({ data: [{ id: "test-model" }] }));
+    else if (request.url === "/v1/responses") response.end(JSON.stringify({ output_text: "OK" }));
+    else if (request.url === "/v1/chat/completions") response.end(JSON.stringify({ choices: [{ message: { content: "OK" } }] }));
+    else {
+      response.statusCode = 404;
+      response.end(JSON.stringify({ error: "not found" }));
+    }
+  });
+  t.after(() => server.close());
+
+  for (const protocol of ["openaiResponses", "openaiChatCompletions"]) {
+    const fixture = await withRuntime(server, protocol);
+    try {
+      const models = await fixture.runtime.invoke("list-models", { operationId: `html-models-${protocol}` });
+      assert.equal(models.status, "ok", JSON.stringify(models));
+      const connection = await fixture.runtime.invoke("test-connection", { operationId: `html-connection-${protocol}` });
+      assert.equal(connection.status, "ok", JSON.stringify(connection));
+      const optimization = await fixture.runtime.invoke("optimize", { operationId: `html-optimize-${protocol}`, text: "原始提示词" });
+      assert.equal(optimization.status, "ok", JSON.stringify(optimization));
+    } finally {
+      await fixture.cleanup();
+    }
+  }
+
+  assert.equal(calls.includes("GET /models"), true);
+  assert.equal(calls.includes("GET /v1/models"), true);
+  assert.equal(calls.includes("POST /responses"), true);
+  assert.equal(calls.includes("POST /v1/responses"), true);
+  assert.equal(calls.includes("POST /chat/completions"), true);
+  assert.equal(calls.includes("POST /v1/chat/completions"), true);
+});
+
 test("lists models before a model has been selected", async (t) => {
   const server = await makeServer((request, response) => {
     assert.equal(request.method, "GET");
