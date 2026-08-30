@@ -15,3 +15,10 @@
 - Root cause: `datalist` 只提供浏览器相关的输入建议，不是稳定的可见菜单；获取到的数组没有绑定到明确的选择控件。
 - Fix: 使用真实 `select` 渲染模型选项，同时保留自由输入框；选择项回填同一份设置状态。
 - Prevention: 回归测试检查模型数组去重/清洗以及设置源码存在可见选择控件；不要把 `datalist` 当作跨宿主的主要选择 UI。
+
+## Required UI extension 导致宿主启动失败
+
+- Symptom: 日志出现 `Required UI extension unavailable: ui.settingsSections`，Codex 启动卡住并周期性黑屏重载，功能包无法进入 Renderer。
+- Root cause: API v3 的 `codexTweaks.ui.settingsSections` 默认 `required` 为 `true`；声明了设置入口但没有明确标记可选时，宿主在调用包 `activate()` 之前就会因当前 UI 适配器缺失而拒绝创建扩展。
+- Fix: 当设置页不是包运行必需条件时，在 manifest 中设置 `settingsSections.required: false`；Renderer 继续通过可选链检查 `ui.settingsSections.register`，缺失时跳过设置入口但保留 Composer/Node 功能。
+- Prevention: manifest 回归测试必须解析 `package.json` 并断言可降级 UI 扩展为 `required: false`；不要用 Node 权限或私有 DOM bridge 绕过宿主 UI 能力差异。
