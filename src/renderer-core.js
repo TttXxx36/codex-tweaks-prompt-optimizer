@@ -179,7 +179,7 @@ function isComposerRegion(element) {
     || /composer/.test(testId);
 }
 
-function findComposerRegion(composer) {
+export function findComposerRegion(composer) {
   const body = composer?.ownerDocument?.body;
   for (let current = composer; current && current !== body; current = current.parentElement) {
     if (isComposerRegion(current)) return current;

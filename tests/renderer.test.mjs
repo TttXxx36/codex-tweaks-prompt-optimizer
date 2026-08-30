@@ -5,6 +5,7 @@ import {
   captureComposerContext,
   findComposerActionAnchor,
   findComposerCandidates,
+  findComposerRegion,
   findModelPicker,
   isComposerCandidate,
   isSameComposerContext,
@@ -170,6 +171,16 @@ test("finds a model picker in an outer Composer region before falling back to se
   assert.equal(findComposerActionAnchor(composer), picker);
 });
 
+test("uses the nearest Composer frame for panel anchoring", () => {
+  const composerRegion = new FakeElement("section", { "data-composer": "true" });
+  const nested = new FakeElement("div");
+  const composer = new FakeElement("textarea", { placeholder: "Message" });
+  composerRegion.append(nested);
+  nested.append(composer);
+
+  assert.equal(findComposerRegion(composer), composerRegion);
+});
+
 test("uses the submit action when a Codex or Work composer has no model picker", () => {
   const composerShell = new FakeElement("form", { "data-composer": "true" });
   const composer = new FakeElement("div", {
@@ -241,7 +252,7 @@ test("preview geometry prefers the space above Composer, then avoids overlap and
   });
   assert.deepEqual(preferred, { left: 20, top: 20 });
   assert.deepEqual(normalizePanelSize(1000, 1000, { width: 640, height: 480 }), { width: 616, height: 456 });
-  assert.equal(normalizePanelSize(undefined, undefined, { width: 900, height: 700 }).height, 360);
+  assert.equal(normalizePanelSize(undefined, undefined, { width: 900, height: 700 }).height, 340);
 });
 
 test("settings stylesheet centers the pane and follows Codex light and dark host classes", async () => {
@@ -251,7 +262,15 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
-  assert.match(css, /\.ctpo-panel-preview\s*\{(?=[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\);)/s);
+});
+
+test("preview follows the Composer frame and emphasizes the optimized result", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(source, /findComposerRegion\(contextElement\) \?\? contextElement/);
+  assert.match(css, /--ctpo-bg:\s*var\(--color-background-panel,/);
+  assert.match(css, /\.ctpo-panel-preview\s*\{(?=[^}]*grid-template-columns:\s*minmax\(180px, 0\.8fr\) minmax\(0, 1\.6fr\);)(?=[^}]*column-gap:\s*8px;)/s);
+  assert.match(css, /\.ctpo-panel-preview > \.ctpo-panel-result\s*\{(?=[^}]*background:\s*var\(--ctpo-surface-strong\);)(?=[^}]*border-color:\s*var\(--ctpo-accent\);)/s);
 });
 
 test("settings keeps API key drafts across visibility toggles and renders save feedback beside actions", async () => {

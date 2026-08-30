@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const CONFIG_FILE = "config.json";
 const HISTORY_FILE = "history.json";
-const PACKAGE_VERSION = "0.1.5";
+const PACKAGE_VERSION = "0.1.6";
 
 function asTrimmedString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
