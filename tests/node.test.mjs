@@ -134,6 +134,48 @@ test("accepts a BOM-prefixed JSON response and finite known SSE envelopes", () =
   ].join("\n")), { choices: [{ message: { content: "OK" } }] });
 });
 
+test("accepts standard multi-line SSE data events", () => {
+  const body = parseJsonResponseBody([
+    "event: response.completed",
+    'data: {"type":"response.completed",',
+    'data: "response":{"output":[{"content":[{"type":"output_text","text":"OK"}]}]}}',
+    "",
+    "data: [DONE]",
+  ].join("\n"));
+
+  assert.equal(extractResponseText(body), "OK");
+});
+
+test("uses standard multi-line SSE responses through both OpenAI optimization RPCs", async (t) => {
+  const server = await makeServer(async (request, response) => {
+    await readRequest(request);
+    response.setHeader("content-type", "text/event-stream");
+    const payload = request.url === "/responses"
+      ? [
+        "event: response.completed",
+        'data: {"type":"response.completed",',
+        'data: "response":{"output":[{"content":[{"type":"output_text","text":"优化结果"}]}]}}',
+      ]
+      : [
+        "event: message",
+        'data: {"choices":[{"message":',
+        'data: {"content":"优化结果"}}]}',
+      ];
+    response.end([...payload, "", "data: [DONE]"].join("\n"));
+  });
+  t.after(() => server.close());
+  for (const protocol of ["openaiResponses", "openaiChatCompletions"]) {
+    const fixture = await withRuntime(server, protocol);
+    try {
+      const result = await fixture.runtime.invoke("optimize", { operationId: `multiline-sse-${protocol}`, text: "原始提示词" });
+      assert.equal(result.status, "ok", JSON.stringify(result));
+      assert.equal(result.result, "优化结果");
+    } finally {
+      await fixture.cleanup();
+    }
+  }
+});
+
 test("supports all three protocols and finite /v1 fallback without streaming", async (t) => {
   const calls = [];
   const server = await makeServer(async (request, response) => {
@@ -216,6 +258,35 @@ test("list-models and test-connection accept complete known SSE responses for Op
     } finally {
       await fixture.cleanup();
     }
+  }
+});
+
+test("lists models before a model has been selected", async (t) => {
+  const server = await makeServer((request, response) => {
+    assert.equal(request.method, "GET");
+    assert.equal(request.url, "/models");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ data: [{ id: "test-model" }] }));
+  });
+  t.after(() => server.close());
+  const dataDirectory = await makeTempDirectory();
+  const runtime = createNodeRuntime({ dataDirectory });
+  try {
+    await runtime.invoke("save-settings", {
+      settings: {
+        protocol: "openaiChatCompletions",
+        baseUrl: server.baseUrl,
+        apiKey: "test-secret-key",
+        model: "",
+      },
+    });
+
+    const response = await runtime.invoke("list-models", { operationId: "models-without-model" });
+    assert.equal(response.status, "ok", JSON.stringify(response));
+    assert.deepEqual(response.models, ["test-model"]);
+  } finally {
+    runtime.dispose();
+    await rm(dataDirectory, { recursive: true, force: true });
   }
 });
 

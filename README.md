@@ -10,7 +10,7 @@
 - 在 Composer 的模型选择器附近提供“优化”按钮。
 - 支持直接替换、预览后应用、多轮澄清三种模式。
 - 支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 三种非流式协议。
-- 支持模型列表探测、HTTPS/本机 HTTP 校验、有限 `/v1` 回退、60 秒超时和有限响应解析（包括 BOM 与已完整收集的标准 SSE `data` 包装）。
+- 支持模型列表探测（无需先填写模型名）、HTTPS/本机 HTTP 校验、有限 `/v1` 回退、60 秒超时和有限响应解析（包括 BOM、标准多行 SSE 事件和已完整收集的兼容 SSE `data` 包装）。
 - 提供可编辑的默认优化指令、历史记录、历史预览和最近一次恢复快照。
 
 ## 隐私与权限

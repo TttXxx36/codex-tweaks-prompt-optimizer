@@ -162,18 +162,18 @@ export function isModelPickerControl(element) {
     element.getAttribute?.("data-testid"),
   ].filter(Boolean).join(" ").toLowerCase();
   const controlLike = tagName === "button" || role === "button" || role === "combobox";
-  if (!controlLike) return false;
   const hasModelLabel = /model|模型|gpt|claude|codex|agent|代理/.test(label);
   const hasCompactModelValue = /^(auto|automatic|自动)$/.test(label.trim());
-  if (ariaHasPopup === "listbox") return true;
-  if (ariaHasPopup === "menu" && (hasModelLabel || hasCompactModelValue)) return true;
+  const hasExplicitModelTestId = /model|模型/.test(element.getAttribute?.("data-testid")?.toLowerCase() ?? "");
+  if (["listbox", "menu"].includes(ariaHasPopup) && (hasModelLabel || hasCompactModelValue || hasExplicitModelTestId)) return true;
+  if (!controlLike && !hasExplicitModelTestId) return false;
   return hasModelLabel || hasCompactModelValue;
 }
 
 export function findModelPicker(composer) {
   let current = composer;
   for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
-    const controls = [...(current.querySelectorAll?.("button, [role=button], [role=combobox], select") ?? [])];
+    const controls = [...(current.querySelectorAll?.("button, [role=button], [role=combobox], [aria-haspopup], [data-testid*=model], select") ?? [])];
     const match = controls.find(isModelPickerControl);
     if (match) return match;
   }
