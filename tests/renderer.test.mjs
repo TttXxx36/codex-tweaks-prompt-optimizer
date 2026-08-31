@@ -632,3 +632,16 @@ test("renderer provides history search filtering and star/pin toggle", async () 
   assert.match(source, /data-pinned/);
   assert.match(source, /ctpo-pinned-badge/);
 });
+
+test("renderer provides custom modal dialogs for profile creation, renaming and deletion confirmations", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(source, /function showModalDialog/);
+  assert.match(source, /ctpo-modal-overlay/);
+  assert.match(source, /ctpo-modal-dialog/);
+  assert.match(source, /rename-profile/);
+  assert.match(source, /save-preset-instruction/);
+  assert.match(css, /\.ctpo-modal-overlay/);
+  assert.match(css, /\.ctpo-modal-dialog/);
+});
+

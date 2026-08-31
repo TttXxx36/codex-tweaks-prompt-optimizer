@@ -1208,6 +1208,85 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
+  function showModalDialog({ title, message = "", inputPlaceholder = "", initialValue = "", showInput = false, confirmText = "确定", cancelText = "取消", isDanger = false, onConfirm }) {
+    const existing = doc.querySelector(".ctpo-modal-overlay");
+    if (existing) existing.remove();
+
+    const overlay = element(doc, "div", { className: "ctpo-modal-overlay" });
+    const modal = element(doc, "div", { className: "ctpo-modal-dialog", role: "dialog", "aria-modal": "true" });
+    
+    const titleEl = element(doc, "h3", { className: "ctpo-modal-title" }, [title]);
+    modal.append(titleEl);
+    
+    if (message) {
+      modal.append(element(doc, "p", { className: "ctpo-modal-message" }, [message]));
+    }
+    
+    let inputEl = null;
+    if (showInput) {
+      inputEl = element(doc, "input", {
+        type: "text",
+        className: "ctpo-modal-input",
+        placeholder: inputPlaceholder,
+        value: initialValue,
+      });
+      modal.append(inputEl);
+    }
+    
+    const actions = element(doc, "div", { className: "ctpo-actions ctpo-modal-actions" });
+    const confirmBtn = actionButton(doc, confirmText, "modal-confirm", {
+      icon: "check",
+      kind: isDanger ? "danger" : "primary",
+    });
+    const cancelBtn = actionButton(doc, cancelText, "modal-cancel", { icon: "cancel" });
+    
+    const close = () => {
+      overlay.remove();
+      doc.removeEventListener("keydown", onKeyDown);
+    };
+    
+    const submit = async () => {
+      const value = inputEl ? inputEl.value.trim() : "";
+      if (showInput && !value) {
+        inputEl.focus();
+        return;
+      }
+      close();
+      if (typeof onConfirm === "function") {
+        await onConfirm(value);
+      }
+    };
+    
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      } else if (e.key === "Enter" && (!inputEl || doc.activeElement === inputEl)) {
+        e.preventDefault();
+        submit();
+      }
+    };
+    
+    confirmBtn.addEventListener("click", submit);
+    cancelBtn.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    
+    actions.append(confirmBtn, cancelBtn);
+    modal.append(actions);
+    overlay.append(modal);
+    doc.body.append(overlay);
+    doc.addEventListener("keydown", onKeyDown);
+    
+    if (inputEl) {
+      inputEl.focus();
+      inputEl.select();
+    } else {
+      confirmBtn.focus();
+    }
+  }
+
   const renderHistory = (view, list, searchQuery = "") => {
     list.replaceChildren();
     const query = searchQuery.trim().toLowerCase();
@@ -1261,15 +1340,22 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         fromHistory: true,
       }));
 
-      actions.querySelector('[data-ctpo-action="history-delete"]').addEventListener("click", async () => {
-        if (doc.defaultView?.confirm && !doc.defaultView.confirm("删除这条优化历史？")) return;
-        try {
-          await callNode("delete-history", { id: entry.id });
-          state.history = state.history.filter((item) => item.id !== entry.id);
-          view.render();
-        } catch (error) {
-          setNotice(error.message, "error");
-        }
+      actions.querySelector('[data-ctpo-action="history-delete"]').addEventListener("click", () => {
+        showModalDialog({
+          title: "删除历史记录",
+          message: "确认删除此条优化历史记录吗？该操作不可撤销。",
+          confirmText: "确认删除",
+          isDanger: true,
+          onConfirm: async () => {
+            try {
+              await callNode("delete-history", { id: entry.id });
+              state.history = state.history.filter((item) => item.id !== entry.id);
+              view.render();
+            } catch (error) {
+              setNotice(error.message, "error");
+            }
+          },
+        });
       });
 
       const itemEl = element(doc, "li", { className: "ctpo-history-item", "data-pinned": isPinned ? "true" : "false" }, [preview, actions]);
@@ -1283,6 +1369,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       container,
       status: null,
       saveFeedback: null,
+      presetFeedback: null,
       inlineNotice: { text: "", kind: "" },
       modelOptions: [],
       keyDraft: "",
@@ -1313,6 +1400,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       ]);
       if (!embedded) wrapper.append(header);
 
+      // Card 1: 基本设置
       const generalCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-general` });
       generalCard.append(element(doc, "h2", { id: `${view.id}-general` }, ["基本设置"]));
       
@@ -1338,21 +1426,24 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         state.settings.streaming = streamSwitch.checked;
       });
       streamLabel.append(streamCopy, streamSwitch);
-
       generalCard.append(switchLabel, streamLabel);
 
+      // Card 2: Provider 档案管理
       const profiles = Array.isArray(settings.profiles) && settings.profiles.length ? settings.profiles : [
         { id: "default-profile", name: "默认配置", protocol: settings.protocol, baseUrl: settings.baseUrl, model: settings.model },
       ];
+      const activeProfileId = settings.activeProfileId || profiles[0].id;
+      const currentProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
+
       const profileCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-profiles` });
       profileCard.append(element(doc, "h2", { id: `${view.id}-profiles` }, ["Provider 档案 (多配置快速切换)"]));
       
-      const profileLine = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px; margin-bottom: 12px;" });
-      const profileSelect = element(doc, "select", { "aria-label": "选择配置档案", style: "flex: 1;" });
+      const profileLine = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px; margin-bottom: 4px;" });
+      const profileSelect = element(doc, "select", { "aria-label": "选择配置档案", style: "flex: 1; min-width: 140px;" });
       for (const p of profiles) {
         profileSelect.append(element(doc, "option", { value: p.id, textContent: p.name || p.id }));
       }
-      profileSelect.value = settings.activeProfileId || profiles[0].id;
+      profileSelect.value = activeProfileId;
       profileSelect.addEventListener("change", async () => {
         setViewBusy(view, true);
         try {
@@ -1368,102 +1459,103 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         }
       });
 
-      const addProfileBtn = actionButton(doc, "+ 新增档案", "save-profile", { icon: "spark", title: "添加新模型 Provider 档案" });
-      addProfileBtn.addEventListener("click", async () => {
-        const name = doc.defaultView?.prompt?.("请输入新档案名称：", "自定义配置");
-        if (!name) return;
-        const newProf = {
-          id: `profile-${Date.now()}`,
-          name: name.trim(),
-          protocol: "openaiResponses",
-          baseUrl: "",
-          apiKey: "",
-          model: "",
-          streaming: true,
-        };
-        try {
-          const res = await callNode("save-profile", { profile: newProf });
-          await callNode("select-profile", { profileId: newProf.id });
-          state.settings = { ...state.settings, ...res.settings, activeProfileId: newProf.id };
-          view.keyDraft = "";
-          setInlineNotice(`已创建并切换到【${name}】`, "success");
-          view.render();
-        } catch (e) {
-          setInlineNotice(e.message, "error");
-        }
+      const addProfileBtn = actionButton(doc, "+ 新增档案", "add-profile", { icon: "spark", title: "添加新模型 Provider 档案" });
+      addProfileBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "新增 Provider 档案",
+          message: "请输入新配置档案的名称（例如：DeepSeek、Claude、本地 Ollama 等）：",
+          showInput: true,
+          inputPlaceholder: "例如：DeepSeek 官方 API",
+          initialValue: "新模型配置",
+          confirmText: "创建档案",
+          onConfirm: async (name) => {
+            if (!name) return;
+            const newProf = {
+              id: `profile-${Date.now()}`,
+              name: name,
+              protocol: "openaiResponses",
+              baseUrl: "",
+              apiKey: "",
+              model: "",
+              streaming: true,
+            };
+            setViewBusy(view, true);
+            try {
+              const res = await callNode("save-profile", { profile: newProf });
+              await callNode("select-profile", { profileId: newProf.id });
+              state.settings = { ...state.settings, ...res.settings, activeProfileId: newProf.id };
+              view.keyDraft = "";
+              setInlineNotice(`已创建并切换到【${name}】`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
+      });
+
+      const renameProfileBtn = actionButton(doc, "重命名", "rename-profile", { icon: "edit", title: "重命名当前选中的档案" });
+      renameProfileBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "重命名配置档案",
+          message: `修改档案【${currentProfile.name}】的名称：`,
+          showInput: true,
+          initialValue: currentProfile.name,
+          confirmText: "保存名称",
+          onConfirm: async (newName) => {
+            if (!newName || newName === currentProfile.name) return;
+            setViewBusy(view, true);
+            try {
+              const updatedProfile = { ...currentProfile, name: newName };
+              const res = await callNode("save-profile", { profile: updatedProfile });
+              state.settings = { ...state.settings, ...res.settings };
+              setInlineNotice(`已重命名为【${newName}】`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
       });
 
       const delProfileBtn = actionButton(doc, "删除档案", "delete-profile", { icon: "trash", kind: "danger", title: "删除当前选中的档案" });
-      delProfileBtn.addEventListener("click", async () => {
+      delProfileBtn.addEventListener("click", () => {
         if (profiles.length <= 1) {
           setInlineNotice("至少保留一个配置档案，无法删除。", "error");
           return;
         }
-        if (doc.defaultView?.confirm && !doc.defaultView.confirm(`确认删除当前档案【${settings.activeProfileId}】？`)) return;
-        try {
-          const res = await callNode("delete-profile", { profileId: settings.activeProfileId });
-          state.settings = { ...state.settings, ...res.settings };
-          setInlineNotice("档案已删除。", "success");
-          view.render();
-        } catch (e) {
-          setInlineNotice(e.message, "error");
-        }
+        showModalDialog({
+          title: "删除配置档案",
+          message: `确认删除当前配置档案【${currentProfile.name}】吗？该操作不可撤销。`,
+          confirmText: "确认删除",
+          isDanger: true,
+          onConfirm: async () => {
+            setViewBusy(view, true);
+            try {
+              const res = await callNode("delete-profile", { profileId: currentProfile.id });
+              state.settings = { ...state.settings, ...res.settings };
+              view.keyDraft = "";
+              setInlineNotice(`档案【${currentProfile.name}】已删除。`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
       });
 
-      profileLine.append(profileSelect, addProfileBtn, delProfileBtn);
+      profileLine.append(profileSelect, addProfileBtn, renameProfileBtn, delProfileBtn);
       profileCard.append(profileLine);
 
-      const debugCard = element(doc, "section", {
-        className: "ctpo-card",
-        "aria-labelledby": `${view.id}-debug-geometry`,
-        "data-ctpo-settings-section": "debug-geometry",
-      });
-      debugCard.append(
-        element(doc, "h2", { id: `${view.id}-debug-geometry` }, ["临时定位诊断"]),
-        element(doc, "p", { className: "ctpo-hint" }, ["仅在本次会话记录 Composer、锚点、按钮和视口几何；不记录输入内容、API Key、地址或请求数据。"]),
-      );
-      const debugSwitchLabel = element(doc, "label", { className: "ctpo-switch-row" });
-      const debugSwitchCopy = element(doc, "span", {}, [
-        element(doc, "span", { className: "ctpo-label" }, ["启用临时定位诊断"]),
-        element(doc, "span", { className: "ctpo-hint" }, ["打开后请粘贴一次，再导出下方 JSON。关闭或停用包后记录不会写入磁盘。"]),
-      ]);
-      const debugSwitch = element(doc, "input", {
-        type: "checkbox",
-        className: "ctpo-switch",
-        role: "switch",
-        "aria-label": "启用临时定位诊断",
-        checked: state.debugGeometry,
-      });
-      debugSwitch.addEventListener("change", () => setDebugGeometry(debugSwitch.checked));
-      debugSwitchLabel.append(debugSwitchCopy, debugSwitch);
-      const debugOutput = element(doc, "textarea", {
-        className: "ctpo-debug-output",
-        "aria-label": "定位诊断输出",
-        readOnly: true,
-        spellcheck: "false",
-        wrap: "off",
-      });
-      debugOutput.value = JSON.stringify(state.debugGeometryReports, null, 2);
-      view.debugOutput = debugOutput;
-      const debugActions = element(doc, "div", { className: "ctpo-actions" });
-      const selectDebug = actionButton(doc, "选择诊断文本（Ctrl+C 复制）", "select-debug-geometry", { icon: "copy", title: "选择不含输入内容的几何诊断 JSON" });
-      selectDebug.addEventListener("click", () => {
-        debugOutput.focus?.();
-        debugOutput.select?.();
-        setInlineNotice("诊断 JSON 已选中，请按 Ctrl+C 复制；内容不含输入文本。", "success");
-      });
-      const clearDebug = actionButton(doc, "清空诊断", "clear-debug-geometry", { icon: "trash", kind: "danger", title: "清空本次会话的定位诊断记录" });
-      clearDebug.addEventListener("click", () => {
-        state.debugGeometryReports.length = 0;
-        refreshDebugOutputViews();
-        setInlineNotice("定位诊断记录已清空。", "success");
-      });
-      debugActions.append(selectDebug, clearDebug);
-      debugCard.append(debugSwitchLabel, debugActions, debugOutput);
-      wrapper.append(generalCard, profileCard, debugCard);
-
+      // Card 3: 当前档案 API 设置 (含保存配置、清除 Key、测试连接)
       const providerCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-provider` });
-      providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, ["当前档案 API 设置"]));
+      providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, [`当前档案 API 设置（${currentProfile.name || "当前配置"}）`]));
       const grid = element(doc, "div", { className: "ctpo-grid" });
 
       const modeSelect = element(doc, "select", { id: createSettingsId(view, "mode"), "aria-describedby": createSettingsId(view, "mode-hint") });
@@ -1538,79 +1630,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       grid.append(modelField);
       providerCard.append(grid);
 
-      const presetCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-presets` });
-      presetCard.append(element(doc, "h2", { id: `${view.id}-presets` }, ["场景优化预设 & 指令"]));
-
-      const presetsList = Array.isArray(settings.presets) && settings.presets.length
-        ? settings.presets
-        : [
-          { id: "general", name: "通用优化", instruction: RENDERER_DEFAULTS.instruction },
-          { id: "code", name: "编程开发" },
-          { id: "concise", name: "精准精简" },
-          { id: "cot", name: "深度推理 (CoT)" },
-          { id: "translate", name: "中英转译" },
-        ];
-
-      const presetSelectLine = element(doc, "div", { className: "ctpo-inline", style: "margin-bottom: 8px;" });
-      const presetSelect = element(doc, "select", { style: "flex: 1;" });
-      for (const p of presetsList) {
-        presetSelect.append(element(doc, "option", { value: p.id, textContent: p.name }));
-      }
-      presetSelect.value = settings.activePresetId || "general";
-      presetSelect.addEventListener("change", async () => {
-        try {
-          const res = await callNode("select-preset", { presetId: presetSelect.value });
-          state.settings = { ...state.settings, ...res.settings };
-          setInlineNotice(`已应用【${presetsList.find((p) => p.id === presetSelect.value)?.name}】预设指令`, "success");
-          view.render();
-        } catch (e) {
-          setInlineNotice(e.message, "error");
-        }
-      });
-      presetSelectLine.append(presetSelect);
-      presetCard.append(field(doc, "选择场景预设", presetSelectLine, "可切换编程、精简、思维链推导或通用优化预设模板。"));
-
-      const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
-      instruction.addEventListener("input", () => { state.settings.instruction = instruction.value; });
-      const resetInstruction = actionButton(doc, "恢复默认", "reset-instruction", { icon: "refresh" });
-      resetInstruction.addEventListener("click", () => {
-        state.settings.instruction = RENDERER_DEFAULTS.instruction;
-        view.render();
-      });
-      presetCard.append(field(doc, "当前优化指令 (Prompt)", instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
-      presetCard.append(element(doc, "div", { className: "ctpo-actions" }, [resetInstruction]));
-      wrapper.append(providerCard, presetCard);
-
-      const historyCard = element(doc, "section", {
-        className: "ctpo-card",
-        "aria-labelledby": `${view.id}-history`,
-        "data-ctpo-settings-section": "history",
-      });
-      historyCard.append(element(doc, "h2", { id: `${view.id}-history` }, ["优化历史与收藏"]));
-      
-      const historyLimit = element(doc, "select", { id: createSettingsId(view, "history-limit") });
-      for (const value of HISTORY_OPTIONS) historyLimit.append(element(doc, "option", { value, textContent: value === 0 ? "0（不保留）" : String(value) }));
-      historyLimit.value = String(settings.historyLimit);
-      historyLimit.addEventListener("change", () => { state.settings.historyLimit = Number(historyLimit.value); });
-      historyCard.append(field(doc, "历史保留数量", historyLimit, "置顶收藏的历史不受数量限制。"));
-
-      const historySearch = element(doc, "input", {
-        type: "search",
-        className: "ctpo-history-search",
-        placeholder: "搜索历史提示词或优化结果...",
-      });
-      historySearch.value = view.historySearch;
-      const historyList = element(doc, "ul", { className: "ctpo-history-list" });
-      historySearch.addEventListener("input", () => {
-        view.historySearch = historySearch.value;
-        renderHistory(view, historyList, view.historySearch);
-      });
-      historyCard.append(historySearch);
-      renderHistory(view, historyList, view.historySearch);
-      historyCard.append(historyList);
-      wrapper.append(historyCard);
-
-      const actions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 16px;" });
+      // API Settings 操作按钮：保存配置、清除 Key、测试连接
+      const apiActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 14px; border-top: 1px solid var(--ctpo-border); padding-top: 12px;" });
       const save = actionButton(doc, "保存配置", "save-settings", { icon: "check", kind: "primary" });
       save.addEventListener("click", async () => {
         setViewBusy(view, true);
@@ -1661,44 +1682,228 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       saveFeedback.textContent = view.inlineNotice.text;
       saveFeedback.dataset.kind = view.inlineNotice.kind;
       view.saveFeedback = saveFeedback;
-      actions.append(save, clearKey, test, saveFeedback);
-      wrapper.append(actions);
+      apiActions.append(save, clearKey, test, saveFeedback);
+      providerCard.append(apiActions);
 
+      // Card 4: 场景优化预设 & 指令
+      const presetCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-presets` });
+      presetCard.append(element(doc, "h2", { id: `${view.id}-presets` }, ["场景优化预设 & 指令"]));
+
+      const presetsList = Array.isArray(settings.presets) && settings.presets.length
+        ? settings.presets
+        : [
+          { id: "general", name: "通用优化", instruction: RENDERER_DEFAULTS.instruction },
+          { id: "code", name: "编程开发" },
+          { id: "concise", name: "精准精简" },
+          { id: "cot", name: "深度推理 (CoT)" },
+          { id: "translate", name: "中英转译" },
+        ];
+
+      const presetSelectLine = element(doc, "div", { className: "ctpo-inline", style: "margin-bottom: 8px;" });
+      const presetSelect = element(doc, "select", { style: "flex: 1;" });
+      for (const p of presetsList) {
+        presetSelect.append(element(doc, "option", { value: p.id, textContent: p.name }));
+      }
+      presetSelect.value = settings.activePresetId || "general";
+      presetSelect.addEventListener("change", async () => {
+        try {
+          const res = await callNode("select-preset", { presetId: presetSelect.value });
+          state.settings = { ...state.settings, ...res.settings };
+          setInlineNotice(`已应用【${presetsList.find((p) => p.id === presetSelect.value)?.name}】预设指令`, "success");
+          view.render();
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        }
+      });
+      presetSelectLine.append(presetSelect);
+      presetCard.append(field(doc, "选择场景预设", presetSelectLine, "可切换编程、精简、思维链推导或通用优化预设模板。"));
+
+      const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
+      instruction.addEventListener("input", () => { state.settings.instruction = instruction.value; });
+      
+      const resetInstruction = actionButton(doc, "恢复默认", "reset-instruction", { icon: "refresh" });
+      resetInstruction.addEventListener("click", () => {
+        state.settings.instruction = RENDERER_DEFAULTS.instruction;
+        instruction.value = RENDERER_DEFAULTS.instruction;
+        setInlineNotice("已恢复默认优化指令。");
+      });
+
+      const savePresetBtn = actionButton(doc, "保存预设与指令", "save-preset-instruction", { icon: "check", kind: "primary" });
+      savePresetBtn.addEventListener("click", async () => {
+        setViewBusy(view, true);
+        try {
+          const activePreset = presetsList.find((p) => p.id === (settings.activePresetId || "general"));
+          if (activePreset) {
+            activePreset.instruction = instruction.value;
+            await callNode("save-preset", { preset: activePreset });
+          }
+          const response = await callNode("save-settings", { settings: { ...state.settings, instruction: instruction.value } });
+          state.settings = { ...RENDERER_DEFAULTS, ...response.settings };
+          setInlineNotice("预设与优化指令已保存。", "success");
+          view.render();
+        } catch (error) {
+          setInlineNotice(error.message, "error");
+        } finally {
+          setViewBusy(view, false);
+        }
+      });
+
+      presetCard.append(field(doc, "当前优化指令 (Prompt)", instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
+      const presetActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 10px; justify-content: flex-end;" }, [resetInstruction, savePresetBtn]);
+      presetCard.append(presetActions);
+
+      // Card 5: 优化历史与收藏
+      const historyCard = element(doc, "section", {
+        className: "ctpo-card",
+        "aria-labelledby": `${view.id}-history`,
+        "data-ctpo-settings-section": "history",
+      });
+      historyCard.append(element(doc, "h2", { id: `${view.id}-history` }, ["优化历史与收藏"]));
+      
+      const historyLimit = element(doc, "select", { id: createSettingsId(view, "history-limit") });
+      for (const value of HISTORY_OPTIONS) historyLimit.append(element(doc, "option", { value, textContent: value === 0 ? "0（不保留）" : String(value) }));
+      historyLimit.value = String(settings.historyLimit);
+      historyLimit.addEventListener("change", async () => {
+        state.settings.historyLimit = Number(historyLimit.value);
+        try {
+          await callNode("save-settings", { settings: { ...state.settings, historyLimit: Number(historyLimit.value) } });
+          setInlineNotice("历史保留数量已更新。", "success");
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        }
+      });
+      historyCard.append(field(doc, "历史保留数量", historyLimit, "置顶收藏的历史不受数量限制。"));
+
+      const historySearch = element(doc, "input", {
+        type: "search",
+        className: "ctpo-history-search",
+        placeholder: "搜索历史提示词或优化结果...",
+      });
+      historySearch.value = view.historySearch;
+      const historyList = element(doc, "ul", { className: "ctpo-history-list" });
+      historySearch.addEventListener("input", () => {
+        view.historySearch = historySearch.value;
+        renderHistory(view, historyList, view.historySearch);
+      });
+      historyCard.append(historySearch);
+      renderHistory(view, historyList, view.historySearch);
+      historyCard.append(historyList);
+
+      const clearAllHistoryBtn = actionButton(doc, "清空所有历史", "clear-all-history", { icon: "trash", kind: "danger", title: "清空所有未置顶及已保存的历史记录" });
+      clearAllHistoryBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "清空优化历史",
+          message: "确认清空所有提示词优化历史记录吗？",
+          confirmText: "确认清空",
+          isDanger: true,
+          onConfirm: async () => {
+            try {
+              await callNode("clear-history");
+              state.history = [];
+              renderHistory(view, historyList, view.historySearch);
+              setInlineNotice("历史记录已清空。", "success");
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            }
+          },
+        });
+      });
+      const historyBottomActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 10px;" }, [clearAllHistoryBtn]);
+      historyCard.append(historyBottomActions);
+
+      // Card 6: 临时定位诊断
+      const debugCard = element(doc, "section", {
+        className: "ctpo-card",
+        "aria-labelledby": `${view.id}-debug-geometry`,
+        "data-ctpo-settings-section": "debug-geometry",
+      });
+      debugCard.append(
+        element(doc, "h2", { id: `${view.id}-debug-geometry` }, ["临时定位诊断"]),
+        element(doc, "p", { className: "ctpo-hint" }, ["仅在本次会话记录 Composer、锚点、按钮和视口几何；不记录输入内容、API Key、地址或请求数据。"]),
+      );
+      const debugSwitchLabel = element(doc, "label", { className: "ctpo-switch-row" });
+      const debugSwitchCopy = element(doc, "span", {}, [
+        element(doc, "span", { className: "ctpo-label" }, ["启用临时定位诊断"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["打开后请粘贴一次，再导出下方 JSON。关闭或停用包后记录不会写入磁盘。"]),
+      ]);
+      const debugSwitch = element(doc, "input", {
+        type: "checkbox",
+        className: "ctpo-switch",
+        role: "switch",
+        "aria-label": "启用临时定位诊断",
+        checked: state.debugGeometry,
+      });
+      debugSwitch.addEventListener("change", () => setDebugGeometry(debugSwitch.checked));
+      debugSwitchLabel.append(debugSwitchCopy, debugSwitch);
+      const debugOutput = element(doc, "textarea", {
+        className: "ctpo-debug-output",
+        "aria-label": "定位诊断输出",
+        readOnly: true,
+        spellcheck: "false",
+        wrap: "off",
+      });
+      debugOutput.value = JSON.stringify(state.debugGeometryReports, null, 2);
+      view.debugOutput = debugOutput;
+      const debugActions = element(doc, "div", { className: "ctpo-actions" });
+      const selectDebug = actionButton(doc, "选择诊断文本（Ctrl+C 复制）", "select-debug-geometry", { icon: "copy", title: "选择不含输入内容的几何诊断 JSON" });
+      selectDebug.addEventListener("click", () => {
+        debugOutput.focus?.();
+        debugOutput.select?.();
+        setInlineNotice("诊断 JSON 已选中，请按 Ctrl+C 复制；内容不含输入文本。", "success");
+      });
+      const clearDebug = actionButton(doc, "清空诊断", "clear-debug-geometry", { icon: "trash", kind: "danger", title: "清空本次会话的定位诊断记录" });
+      clearDebug.addEventListener("click", () => {
+        state.debugGeometryReports.length = 0;
+        refreshDebugOutputViews();
+        setInlineNotice("定位诊断记录已清空。", "success");
+      });
+      debugActions.append(selectDebug, clearDebug);
+      debugCard.append(debugSwitchLabel, debugActions, debugOutput);
+
+      // Card 7: 卸载前清理数据
       const cleanupCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-cleanup`, style: "margin-top: 16px;" });
       cleanupCard.append(
         element(doc, "h2", { id: `${view.id}-cleanup` }, ["卸载前清理数据"]),
         element(doc, "p", { className: "ctpo-hint" }, ["清除 API Key、历史记录和已保存 Provider 配置；包停用不会自动执行此操作。"]),
       );
       const cleanupButton = actionButton(doc, "清理包数据", "clear-history", { icon: "trash", kind: "danger" });
-      cleanupButton.addEventListener("click", async () => {
-        if (doc.defaultView?.confirm && !doc.defaultView.confirm("清除 API Key、历史和 Provider 配置？建议在卸载前执行。")) return;
-        setViewBusy(view, true);
-        try {
-          await callNode("clear-api-key");
-          await callNode("clear-history");
-          const response = await callNode("save-settings", {
-            settings: {
-              ...RENDERER_DEFAULTS,
-              apiKey: "",
-              clearApiKey: true,
-            },
-          });
-          state.settings = { ...RENDERER_DEFAULTS, ...(response.settings ?? {}), apiKey: "" };
-          state.history = [];
-          state.latestSnapshot = null;
-          state.latestRestoreEntry?.restoreButton?.remove();
-          state.latestRestoreEntry = null;
-          setNotice("包数据已清理，可以继续卸载功能包。", "success");
-          view.render();
-          scheduleScan();
-        } catch (error) {
-          setNotice(`包数据清理未完成：${error.message}`, "error");
-        } finally {
-          setViewBusy(view, false);
-        }
+      cleanupButton.addEventListener("click", () => {
+        showModalDialog({
+          title: "清理所有包数据",
+          message: "清除 API Key、历史记录和已保存 Provider 配置？建议在卸载前执行。",
+          confirmText: "确认清理",
+          isDanger: true,
+          onConfirm: async () => {
+            setViewBusy(view, true);
+            try {
+              await callNode("clear-api-key");
+              await callNode("clear-history");
+              const response = await callNode("save-settings", {
+                settings: {
+                  ...RENDERER_DEFAULTS,
+                  apiKey: "",
+                  clearApiKey: true,
+                },
+              });
+              state.settings = { ...RENDERER_DEFAULTS, ...(response.settings ?? {}), apiKey: "" };
+              state.history = [];
+              state.latestSnapshot = null;
+              state.latestRestoreEntry?.restoreButton?.remove();
+              state.latestRestoreEntry = null;
+              setNotice("包数据已清理，可以继续卸载功能包。", "success");
+              view.render();
+              scheduleScan();
+            } catch (error) {
+              setNotice(`包数据清理未完成：${error.message}`, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
       });
       cleanupCard.append(element(doc, "div", { className: "ctpo-actions" }, [cleanupButton]));
-      wrapper.append(cleanupCard);
+
+      wrapper.append(generalCard, profileCard, providerCard, presetCard, historyCard, debugCard, cleanupCard);
 
       const status = element(doc, "div", { className: "ctpo-status", role: "status", "aria-live": "polite" }, [state.notice.text || (node ? "" : "Node 权限尚未授权。")]);
       status.dataset.kind = state.notice.kind;
@@ -1715,6 +1920,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       container.removeAttribute(ROOT_ATTRIBUTE);
     };
   };
+
+
 
   function setViewBusy(view, busy) {
     view.busy = busy;
@@ -1817,9 +2024,13 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
     const viewTab = panelState.viewTab || "edit";
     if (viewTab === "markdown") {
-      panel.append(renderSimpleMarkdown(doc, panelState.result));
+      const md = renderSimpleMarkdown(doc, panelState.result);
+      md.classList.add("ctpo-panel-result");
+      panel.append(md);
     } else if (viewTab === "diff") {
-      panel.append(renderSimpleDiff(doc, panelState.original, panelState.result));
+      const diff = renderSimpleDiff(doc, panelState.original, panelState.result);
+      diff.classList.add("ctpo-panel-result");
+      panel.append(diff);
     } else {
       const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
       result.addEventListener("input", () => { panelState.result = result.value; });
