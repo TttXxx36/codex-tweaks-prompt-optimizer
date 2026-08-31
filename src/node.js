@@ -1,5 +1,4 @@
 import { promises as fs } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -51,10 +50,21 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const CONFIG_FILE = "config.json";
 const HISTORY_FILE = "history.json";
-const PACKAGE_VERSION = createRequire(import.meta.url)("../package.json").version;
+const PACKAGE_MANIFEST_FILE = "package.json";
+const UNKNOWN_PACKAGE_VERSION = "unknown";
 
 function asTrimmedString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+async function readPackageVersion(packageDirectory) {
+  if (typeof packageDirectory !== "string" || !path.isAbsolute(packageDirectory)) return UNKNOWN_PACKAGE_VERSION;
+  try {
+    const manifest = JSON.parse(await fs.readFile(path.join(packageDirectory, PACKAGE_MANIFEST_FILE), "utf8"));
+    return asTrimmedString(manifest?.version, UNKNOWN_PACKAGE_VERSION);
+  } catch {
+    return UNKNOWN_PACKAGE_VERSION;
+  }
 }
 
 function isPlainObject(value) {
@@ -474,11 +484,11 @@ async function readBoundedBody(response, maximumBytes) {
   return new TextDecoder().decode(merged);
 }
 
-function authHeaders(protocol, apiKey) {
+function authHeaders(protocol, apiKey, packageVersion = UNKNOWN_PACKAGE_VERSION) {
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "User-Agent": `codex-tweaks-ct-prompt-optimizer/${PACKAGE_VERSION}`,
+    "User-Agent": `codex-tweaks-ct-prompt-optimizer/${packageVersion}`,
   };
   if (protocol === "anthropicMessages") {
     headers["x-api-key"] = apiKey;
@@ -589,7 +599,7 @@ function parseApiResponseBody(raw, contentType = "") {
   }
 }
 
-async function requestJson({ fetchImpl, url, protocol, apiKey, method = "POST", body, signal, timeoutMs = REQUEST_TIMEOUT_MS }) {
+async function requestJson({ fetchImpl, url, protocol, apiKey, packageVersion = UNKNOWN_PACKAGE_VERSION, method = "POST", body, signal, timeoutMs = REQUEST_TIMEOUT_MS }) {
   if (typeof fetchImpl !== "function") {
     const error = new Error("当前 Node 运行时不支持 fetch");
     error.code = "fetch_unavailable";
@@ -606,7 +616,7 @@ async function requestJson({ fetchImpl, url, protocol, apiKey, method = "POST", 
   try {
     const response = await fetchImpl(url, {
       method,
-      headers: authHeaders(protocol, apiKey),
+      headers: authHeaders(protocol, apiKey, await packageVersion),
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
       redirect: "error",
@@ -743,13 +753,14 @@ function failure(error, secrets = [], operationId) {
   };
 }
 
-export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch, timeoutMs = REQUEST_TIMEOUT_MS, now = () => new Date().toISOString(), signal } = {}) {
+export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl = globalThis.fetch, timeoutMs = REQUEST_TIMEOUT_MS, now = () => new Date().toISOString(), signal } = {}) {
   if (!dataDirectory) throw new Error("Node dataDirectory 未提供");
   const operations = new Map();
   let disposed = false;
 
   const configPath = path.join(dataDirectory, CONFIG_FILE);
   const historyPath = path.join(dataDirectory, HISTORY_FILE);
+  const packageVersion = readPackageVersion(packageDirectory);
 
   const readConfig = async () => normalizeSettings(await readJsonFile(configPath, defaultConfig()));
   const readHistory = async () => normalizeHistoryFile(await readJsonFile(historyPath, defaultHistory()));
@@ -834,6 +845,7 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
       fetchImpl,
       protocol: settings.protocol,
       apiKey: settings.apiKey,
+      packageVersion,
       method: "GET",
       signal: requestSignal,
       timeoutMs,
@@ -861,6 +873,7 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
       fetchImpl,
       protocol: settings.protocol,
       apiKey: settings.apiKey,
+      packageVersion,
       body,
       signal: requestSignal,
       timeoutMs,
@@ -894,6 +907,7 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
       fetchImpl,
       protocol: settings.protocol,
       apiKey: settings.apiKey,
+      packageVersion,
       body,
       signal: requestSignal,
       timeoutMs,
@@ -927,6 +941,7 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
       fetchImpl,
       protocol: settings.protocol,
       apiKey: settings.apiKey,
+      packageVersion,
       body,
       signal: requestSignal,
       timeoutMs,
@@ -1003,9 +1018,9 @@ export function createNodeRuntime({ dataDirectory, fetchImpl = globalThis.fetch,
   return { handlers, invoke, dispose, cancelOperation };
 }
 
-export function activate({ rpc, dataDirectory, signal } = {}) {
+export function activate({ rpc, packageDirectory, dataDirectory, signal } = {}) {
   if (!rpc || typeof rpc.handle !== "function") throw new Error("Node RPC 未提供");
-  const runtime = createNodeRuntime({ dataDirectory, signal });
+  const runtime = createNodeRuntime({ packageDirectory, dataDirectory, signal });
   const registrations = [];
   for (const [method, handler] of Object.entries(runtime.handlers)) {
     const registration = rpc.handle(method, handler);

@@ -1,6 +1,6 @@
 # Session state (Shisan Xinuo Agent Workflow)
 
-- Current goal: 为 `ct-prompt-optimizer` 维护一份可供新会话接续的完整开发交接手册和后续任务清单。
-- Decisions made: 手册以当前本地源码、Git `main`、远端公开 Release 和项目任务记录为证据；`src/node.js` 从 `package.json` 读取唯一运行时版本；不把未经 Windows/macOS 实机验证的视觉结果写成已完成；临时定位诊断默认关闭、仅保存在会话内且不记录输入内容；用户已确认按 `v0.1.11` 创建 GitHub Release；`v0.1.11` 已创建并核对；不修改宿主 Codex。
+- Current goal: 定位并修复 `ct-prompt-optimizer` v0.1.11 在 Codex Tweaks 宿主中启动失败的 Node `filename ... Received undefined` 错误。
+- Decisions made: 手册以当前本地源码、Git `main`、远端公开 Release 和项目任务记录为证据；Node 运行时版本通过 API v3 `activate` 的 `packageDirectory` 读取，禁止依赖宿主编译路径中的 `import.meta.url`；目录异常时只降级 User-Agent 版本为 `unknown`，不能阻断启动；不把未经 Windows/macOS 实机验证的视觉结果写成已完成；临时定位诊断默认关闭、仅保存在会话内且不记录输入内容；用户已确认按 `v0.1.11` 创建 GitHub Release；`v0.1.11` 已创建并核对；不修改宿主 Codex。
 - Constraints: 不记录 API Key、Authorization、用户 Provider 私密地址；保留现有分支和未相关的用户修改；无 CI 和宿主视觉证据不足仍记录为技术债务或待补充项。
-- Progress + next step: `P0-01` 源码与回归测试已完成，自动测试 49/49；P0-02 已取得 Windows 管理器和当前 Codex Composer 的只读证据，但三模式交互、重载/停用清理仍未验收。用户新增报告：粘贴后优化按钮/菜单跳到 Composer 外框左侧；合成探针已确认旧锚点可跨 Composer 复用，源码已加入临时几何诊断开关，真实宿主 DOM 路径仍待 trace。`v0.1.11` 发布提交 `0881163a7cd378e94e6417e9259f8a577aed1c33` 已推送，GitHub Release 已创建；实机 ManagedPackages 的 `c61a168…` 副本仍保留旧 `0.1.8` 运行时常量，需重新编译/注入后验证；未跟踪的模型选择器诊断记录保留在本地，不纳入本次发布。
+- Progress + next step: 已确认 `createRequire(undefined)` 可稳定复现截图中的精确错误；当前本地修复改用宿主 `packageDirectory`，`npm test` 为 51/51、`npm run check` 和 Git 空白检查通过。v0.1.11 公开 Release 仍包含修复前代码，当前修复尚未提交、推送或发布，亦未重新编译/安装到 Windows 宿主；下一步应先在宿主重新编译并确认 Node 包激活，再决定是否发布补丁版本。P0-02 的三模式交互、重载/停用清理仍未验收。用户报告的粘贴后优化按钮/菜单跳到 Composer 外框左侧仍是独立的 Renderer 几何问题；合成探针已确认旧锚点可跨 Composer 复用，临时诊断开关保留用于实机 trace。未跟踪的模型选择器诊断记录保留在本地，不纳入本次修改。

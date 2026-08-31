@@ -269,7 +269,7 @@ type Settings = {
 
 - `config.json` 和 `history.json` 均带 `schemaVersion: 1`。
 - 当前没有迁移脚本；后续 schema 变化必须增加显式迁移和备份策略。
-- `src/node.js` 的 `PACKAGE_VERSION` 从根目录 `package.json` 读取，Node 请求标识与包清单版本保持一致；已增加请求级回归测试。
+- `src/node.js` 不再在模块加载阶段使用 `createRequire(import.meta.url)`；Node `activate` 使用宿主提供的 `packageDirectory` 在运行时读取 `package.json`，并以 `unknown` 作为异常情况下的非阻断回退；已增加有效目录、缺失目录和源码契约回归测试。
 
 ### 3.4 阶段 D：预览、澄清、历史和设置 UI
 
@@ -305,12 +305,13 @@ type Settings = {
 
 #### 当前证据
 
-- `npm test`：49/49 通过（Node 16 项、Renderer 33 项）。
+- `v0.1.11` 发布基线的 `npm test` 为 49/49；当前工作树补充 Node 宿主兼容回归后为 51/51（Node 18 项、Renderer 33 项）。
 - `npm run check`：通过。
 - 当前 `main` 已包含 `v0.1.11` 发布提交 `0881163a7cd378e94e6417e9259f8a577aed1c33`；状态记录提交之后的最新 HEAD 以 `git rev-parse HEAD` 为准。
 - 远端 `origin/main` 已核对包含同一发布提交；`v0.1.11` 标签和 Release 指向该提交，`v0.1.10` 标签仍指向公开基线 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
 - Windows 只读实机复核已取得部分证据：Codex Tweaks 管理器显示 `5 / 5` 包已启用且激活，`ct-prompt-optimizer` 为源 `v0.1.10`；当前 Codex Composer 可见两个包控件。三模式交互、设置页、重载/重启和停用清理仍未完成，详见 `memory/task-log/2026-08-31-p0-02-windows-visual-smoke.md`。
 - 实机 ManagedPackages 的当前 `c61a168…` 副本 manifest 为 `0.1.10`，但 `src/node.js` 仍含旧 `PACKAGE_VERSION = "0.1.8"`；P0-01 的本地源码改动尚未重新编译/注入到该副本。
+- 用户随后在公开 `v0.1.11` 上报告 Node 入口启动失败：`The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received undefined`。当前本地工作树已定位为 `createRequire(import.meta.url)` 的宿主加载兼容回归并完成修复，但尚未部署到 Windows ManagedPackages。
 
 ## 4. Bug 追踪与修复记录
 
@@ -416,6 +417,15 @@ type Settings = {
 - **临时诊断方案**：`src/index.js` 增加默认关闭、仅保存在当前会话的“临时定位诊断”开关，在粘贴、输入、扫描和重排阶段记录脱敏几何数据；输出包含 `composerRect`、`previousAnchorRect`、`modelPickerRect`、`buttonRect`、viewport、`visualViewport` 和 transform/zoom 元数据，不读取输入内容、API Key、地址或请求数据。
 - **验证边界**：Renderer 回归测试和语法检查通过；该开关只提供实机取证能力，不等同于已修复，也不能替代 Windows 宿主截图和前后几何数据。
 
+### BUG-20260831-13：v0.1.11 Node 入口启动失败
+
+- **问题描述**：用户安装公开 `v0.1.11` 后，功能包显示“运行失败”，错误为 `The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received undefined`。
+- **诊断证据**：Node 最小探针对 `createRequire(undefined)` 连续 3 次复现同一错误；当前发布代码在模块顶层执行 `createRequire(import.meta.url)("../package.json")`，而普通本地 ESM 加载时该表达式正常，因此本地测试无法暴露托管加载器差异。
+- **根本原因**：Node 官方要求 `createRequire` 的参数必须是文件 URL 或绝对路径；功能包不能假定 Codex Tweaks 编译/加载后的 `import.meta.url` 一定存在且为文件 URL。该问题由 P0-01 的版本读取实现引入，发生在 `activate()` 前，故不是 Provider、Key、API 地址或 Composer 输入导致的错误。
+- **修复方案**：删除模块顶层 `createRequire(import.meta.url)`；Node `activate` 接收 API v3 的 `packageDirectory`，在运行时读取该目录下的 `package.json`，把版本传入请求 User-Agent。目录不存在或清单异常时使用 `unknown`，仅影响诊断标识，不阻断 Node 入口。
+- **相关文件**：`src/node.js`、`tests/node.test.mjs`；增加有效 `packageDirectory`、缺失目录和源码契约回归测试。
+- **验证结果**：当前工作树 `npm test` 为 51/51，`npm run check` 和 `git diff --check` 通过；尚未重新编译/安装到 Windows 宿主，因此实机启动修复仍标记为 **【待部署验证】**。公开 `v0.1.11` 仍是修复前版本，不能把本地修复描述为已发布。
+
 ### 4.1 未关闭的已知问题与临时规避
 
 1. **宿主 DOM/API 演进风险**：Codex Tweaks 或 Codex 更新可能改变 Composer 语义标记。临时规避是保留稳定 anchor、重新扫描和包内 fallback；正式方案见 `P0-02`。
@@ -424,6 +434,7 @@ type Settings = {
 4. **没有 CI/打包流水线**：当前发布依赖人工命令和人工检查，容易漏测或把未验证代码发布出去。
 5. **宿主背景信息窗口不是包所有**：本包只识别其状态并避让；若宿主组件本身不渲染，应单独检查宿主实现，不能在本包中复制宿主组件。
 6. **新增用户报告：粘贴后按钮组跳到 Composer 左侧**：目前已用合成 DOM 替换探针确认 `previousAnchor` 缺少当前 Composer 归属校验，真实宿主触发路径和坐标系影响仍待补采 geometry trace；暂不把该合成结果写成已修复。
+7. **公开 v0.1.11 的 Node 启动回归**：该版本仍含 `createRequire(import.meta.url)` 版本读取实现；当前工作树已改用宿主 `packageDirectory` 并通过 51/51 自动化测试，但尚未提交、部署或发布补丁版本。
 
 ## 5. 当前代码库状态
 
@@ -485,13 +496,13 @@ codex-tweaks-prompt-optimizer/
 
 ### 5.4 未提交修改
 
-本手册生成后，`DEVELOPMENT_HANDOFF.md`、P0 任务记录、诊断开关源码/测试和状态更新组成一个变更集，已由功能提交 `bb17c58` 推送到 `origin/main`；具体当前状态仍以命令输出为准：
+前一轮手册、P0 任务记录、诊断开关源码/测试和状态更新组成的变更集已由功能提交 `bb17c58` 推送到 `origin/main`；本轮 Node 宿主启动修复目前仍在工作树中，具体当前状态仍以命令输出为准：
 
 ```powershell
 git status --short --branch
 ```
 
-上述变更集已同步到 `origin/main`，GitHub `v0.1.11` Release 已创建；未跟踪的诊断记录仍须保留并不得擅自纳入。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
+前一轮变更集已同步到 `origin/main`，GitHub `v0.1.11` Release 已创建；本轮修复尚未提交、推送或发布。未跟踪的模型选择器诊断记录仍须保留并不得擅自纳入。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
 
 ### 5.5 已实现功能清单
 
@@ -647,7 +658,7 @@ Node 由宿主传入 `dataDirectory`。运行时创建或维护：
 
 | ID | 优先级 | 任务描述 | 预估工时 | 依赖条件 | 验收标准 |
 | --- | --- | --- | ---: | --- | --- |
-| P0-01 | P0 | **代码与测试已完成**：Node 从 `package.json` 读取运行时版本，避免硬编码漂移；实机编译副本尚待重新部署验证。 | 0.5–1h | 当前 `main`。 | 包版本、Node 报告版本和 Release 标签一致；增加回归检查。 |
+| P0-01 | P0 | **本地修复已完成，部署待验证**：Node 通过宿主 `packageDirectory` 在运行时读取 `package.json`，避免 `import.meta.url` 在托管加载器中为空导致入口崩溃；公开 v0.1.11 仍是修复前版本。 | 0.5–1h | 当前 `main`、宿主 API v3 `packageDirectory`。 | 包版本、Node 报告版本和 Release 标签一致；宿主缺少目录时仍能启动；重新编译/安装后通过实机 Node 激活检查。 |
 | P0-02 | P0 | **进行中**：完成 Windows 三模式 Composer/设置/背景信息窗口视觉 smoke；本轮已取得管理器和当前 Codex Composer 的只读证据。 | 2–4h | 可运行的目标 Codex 版本、Node 授权。 | 记录安装、授权、按钮、三模式、主题、快捷栏、重启、停用截图/日志；无宿主启动异常。 |
 | P0-03 | P0 | 验证宿主 `ui.settingsSections` 存在/缺失两种能力矩阵。 | 1–2h | 至少两个宿主版本或 mock adapter。 | 原生设置可用时正常注册，缺失时 fallback；任何异常不传播到宿主启动层。 |
 | P0-04 | P0 | 引入最小 CI：`node --check`、`npm test`、文档和 manifest 检查。 | 2–3h | GitHub Actions 权限和 Node 矩阵选择。 | PR/推送自动给出可复现通过/失败结果；不上传 Key。 |
@@ -794,12 +805,13 @@ gh repo view TttXxx36/codex-tweaks-prompt-optimizer
 | 原生设置入口 | 宿主通过 `ui.settingsSections` 暴露的个人设置区域。 |
 | 包内设置回退 | 宿主设置扩展不可用时，由包自己显示的设置对话框。 |
 | `dataDirectory` | 宿主传给 Node 的包数据目录，用于配置和历史文件。 |
+| `packageDirectory` | 宿主传给 Node 的包源/编译目录，用于在需要时读取包自身的 `package.json` 等清单；不用于保存用户数据。 |
 | API v3 包生命周期 | 通过 `activate` 启动，使用 `onCleanup`/dispose 清理资源，并由宿主管理启停的功能包运行模型。 |
 | 有限回退 | 只在明确的兼容性错误下尝试一次备用端点，不进行任意路径猜测或无限重试。 |
 
 ## 11. 交接结论
 
-项目已经形成可安装的 Codex Tweaks API v3 提示词优化包，公开 `v0.1.11` Release 和自动化测试构成当前基线；当前开发分支包含 P0-01 版本统一、Windows 视觉取证辅助和相关记录。`P0-01` 的实机编译副本尚未重新部署验证；`P0-02` 已取得部分 Windows 只读证据，完整三模式视觉验收仍未完成。
+项目已经形成可安装的 Codex Tweaks API v3 提示词优化包，公开 `v0.1.11` Release 和自动化测试构成历史基线；当前工作树还包含针对 v0.1.11 Node 启动回归的本地修复，自动化验证已通过但尚未提交、重新部署或发布。`P0-01` 的宿主运行验证仍待完成；`P0-02` 已取得部分 Windows 只读证据，完整三模式视觉验收仍未完成。
 
 最重要的维护边界如下：
 

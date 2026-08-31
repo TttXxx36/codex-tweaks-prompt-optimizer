@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_INSTRUCTION,
   buildClarificationPayload,
@@ -20,6 +21,8 @@ import {
   sanitizeError,
   validateBaseUrl,
 } from "../src/node.js";
+
+const PACKAGE_DIRECTORY = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
 async function makeTempDirectory() {
   return mkdtemp(path.join(os.tmpdir(), "ctpo-test-"));
@@ -45,7 +48,7 @@ async function readRequest(request) {
 
 async function withRuntime(server, protocol = "openaiResponses", options = {}) {
   const dataDirectory = await makeTempDirectory();
-  const runtime = createNodeRuntime({ dataDirectory, ...options });
+  const runtime = createNodeRuntime({ dataDirectory, packageDirectory: PACKAGE_DIRECTORY, ...options });
   const saved = await runtime.invoke("save-settings", {
     settings: {
       enabled: true,
@@ -103,6 +106,41 @@ test("uses the package manifest version for the provider User-Agent", async (t) 
   } finally {
     await fixture.cleanup();
   }
+});
+
+test("keeps Node runtime usable when the host does not provide a package directory", async (t) => {
+  let userAgent = "";
+  const server = await makeServer((request, response) => {
+    userAgent = request.headers["user-agent"];
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ data: [{ id: "test-model" }] }));
+  });
+  t.after(() => server.close());
+  const dataDirectory = await makeTempDirectory();
+  const runtime = createNodeRuntime({ dataDirectory, packageDirectory: undefined });
+  try {
+    await runtime.invoke("save-settings", {
+      settings: {
+        protocol: "openaiChatCompletions",
+        baseUrl: server.baseUrl,
+        apiKey: "test-secret-key",
+        model: "",
+      },
+    });
+    const listed = await runtime.invoke("list-models");
+    assert.equal(listed.status, "ok", JSON.stringify(listed));
+    assert.equal(userAgent, "codex-tweaks-ct-prompt-optimizer/unknown");
+  } finally {
+    runtime.dispose();
+    await rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("uses the host package directory instead of import.meta.url for version metadata", async () => {
+  const source = await readFile(new URL("../src/node.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /createRequire\s*\(\s*import\.meta\.url\s*\)/);
+  assert.match(source, /readPackageVersion\(packageDirectory\)/);
+  assert.match(source, /activate\(\{ rpc, packageDirectory, dataDirectory, signal \}/);
 });
 
 test("builds the three supported non-streaming protocol payloads", () => {

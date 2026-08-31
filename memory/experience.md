@@ -26,9 +26,10 @@
 ## Node 运行时版本与包清单漂移
 
 - Symptom: Node 请求的 `User-Agent` 继续报告旧版本，导致日志、Provider 反馈和公开 Release 难以对应。
-- Root cause: `src/node.js` 维护了独立的 `PACKAGE_VERSION` 硬编码，未从包根目录的 `package.json` 读取版本。
-- Fix: 使用 Node 内置 `createRequire(import.meta.url)` 读取 `../package.json` 的 `version`，并用真实请求级测试校验 `User-Agent`。
-- Prevention: 发布前将 `package.json` 作为唯一包版本来源；回归测试读取包清单并断言外发版本标识一致，不能只更新硬编码常量。
+- Initial root cause: `src/node.js` 维护了独立的 `PACKAGE_VERSION` 硬编码，未从包根目录的 `package.json` 读取版本。
+- Initial fix and regression: P0-01 曾使用 `createRequire(import.meta.url)` 读取 `../package.json`；这在普通本地 ESM 文件加载中通过，但在 Codex Tweaks 托管编译/加载路径中，`import.meta.url` 可能不是可用的文件 URL，导致 Node 入口在 `activate()` 之前抛出 `filename ... Received undefined`。
+- Current fix: Node `activate` 使用 API v3 提供的 `packageDirectory`，把版本清单读取延迟到运行时，并将读取结果传入请求 User-Agent。目录缺失、非绝对路径或清单异常时使用 `unknown`，不阻断插件启动；有有效宿主目录时仍从该目录的 `package.json` 读取版本。
+- Prevention: Node 入口不能把 `import.meta.url` 当作宿主兼容性保证；优先使用宿主明确提供的 `packageDirectory`。回归测试同时覆盖有效包目录、缺失包目录和禁止重新引入危险调用，发布后还必须重新编译/安装实机副本。
 
 ## Windows 管理器版本与实机运行副本漂移
 
