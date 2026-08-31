@@ -43,4 +43,4 @@
 - Code changes: `src/index.js` marks API 地址, API Key, and 模型名称 as full-width Provider fields; `src/style.css` adds light/dark surface tokens, visible cards, a desktop two-column grid, full-width long fields, stronger focus/hover states, a height-bounded diagnostics area, clearer history actions, solid switch accent, and narrow-screen fallbacks; `tests/renderer.test.mjs` adds layout contracts.
 - Verification: `npm test` 52/52 passed; `npm run check` passed; `git diff --check` passed.
 - Design QA: `design-qa.md` records source screenshot evidence and the missing post-change host capture; final result is `blocked`, not passed, because the current Codex Tweaks package was not reloaded in this task.
-- No commit or push was performed. Existing `memory/state.md` and unrelated untracked task logs remain untouched.
+- Release transition: release commit `a727ea004b981707bee63a030f9871d973d6f54e` was pushed to `origin/main`, tag `v0.1.12` was created, and the GitHub Release is <https://github.com/TttXxx36/codex-tweaks-prompt-optimizer/releases/tag/v0.1.12>. Existing `memory/state.md` and unrelated untracked task logs remain untouched.
