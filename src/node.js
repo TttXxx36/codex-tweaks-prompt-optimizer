@@ -1065,10 +1065,23 @@ function normalizeHistoryFile(value) {
   };
 }
 
+export function sortHistoryEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return [...entries].sort((a, b) => {
+    const aPin = Boolean(a?.isPinned);
+    const bPin = Boolean(b?.isPinned);
+    if (aPin !== bPin) return aPin ? -1 : 1;
+    const aTime = new Date(a?.createdAt || 0).getTime();
+    const bTime = new Date(b?.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
 function trimHistory(history, limit) {
   if (!history || !Array.isArray(history.entries)) return defaultHistory();
-  const pinned = history.entries.filter((entry) => entry.isPinned);
-  const unpinned = history.entries.filter((entry) => !entry.isPinned);
+  const sorted = sortHistoryEntries(history.entries);
+  const pinned = sorted.filter((entry) => entry.isPinned);
+  const unpinned = sorted.filter((entry) => !entry.isPinned);
   const keptUnpinned = limit === 0 ? [] : unpinned.slice(0, limit);
   const combined = [...pinned, ...keptUnpinned].slice(0, 50);
   return {
@@ -1356,7 +1369,7 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
     const nextEntries = history.entries.map((entry) => {
       if (entry.id === id) {
         found = true;
-        isPinned = !entry.isPinned;
+        isPinned = payload.pin !== undefined ? Boolean(payload.pin) : !entry.isPinned;
         return { ...entry, isPinned };
       }
       return entry;
@@ -1366,8 +1379,9 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
       error.code = "history_not_found";
       return failure(error);
     }
-    await atomicWriteJson(historyPath, { schemaVersion: SCHEMA_VERSION, entries: nextEntries });
-    return ok({ id, isPinned });
+    const sorted = sortHistoryEntries(nextEntries);
+    await atomicWriteJson(historyPath, { schemaVersion: SCHEMA_VERSION, entries: sorted });
+    return ok({ id, isPinned, entries: sorted });
   };
 
   const selectProfile = async (payload = {}) => {

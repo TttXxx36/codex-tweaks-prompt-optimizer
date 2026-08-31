@@ -651,10 +651,13 @@ test("renderer provides batch operations for history items and collapsible diagn
   assert.match(source, /ctpo-history-batch-bar/);
   assert.match(source, /batch-pin-history/);
   assert.match(source, /batch-delete-history/);
+  assert.match(source, /ctpo-history-hover-card/);
+  assert.match(source, /data-expanded/);
   assert.match(source, /ctpo-debug-details/);
   assert.match(source, /ctpo-debug-summary/);
   assert.match(source, /ctpo-debug-guide/);
   assert.match(css, /\.ctpo-history-batch-bar/);
+  assert.match(css, /\.ctpo-history-hover-card/);
   assert.match(css, /\.ctpo-debug-details/);
   assert.match(css, /\.ctpo-debug-guide/);
 });

@@ -877,8 +877,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const viewport = viewportSize();
     const width = Number(menuRect?.width) || 210;
     const height = Number(menuRect?.height) || 240;
-    const left = Math.max(8, Math.min((Number(triggerRect?.right) || 8) - width, viewport.width - width - 8));
-    const top = Math.max(8, Math.min((Number(triggerRect?.bottom) || 8) + 4, viewport.height - height - 8));
+
+    let left = Number(triggerRect?.left) || 8;
+    if (left + width > viewport.width - 8) {
+      left = Math.max(8, (Number(triggerRect?.right) || width + 8) - width);
+    }
+    let top = (Number(triggerRect?.top) || 0) - height - 6;
+    if (top < 8) {
+      top = Math.min((Number(triggerRect?.bottom) || 0) + 6, viewport.height - height - 8);
+    }
     menu.style.left = `${Math.round(left)}px`;
     menu.style.top = `${Math.round(top)}px`;
     state.composerMenu = { entry, element: menu };
@@ -1329,6 +1336,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     listContainer.replaceChildren();
     if (!view.selectedHistoryIds) view.selectedHistoryIds = new Set();
 
+    // Auto-sort history: Pinned/Favorited items first (newest to oldest), then unpinned (newest to oldest)
+    state.history.sort((a, b) => {
+      const aPin = Boolean(a?.isPinned);
+      const bPin = Boolean(b?.isPinned);
+      if (aPin !== bPin) return aPin ? -1 : 1;
+      return new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime();
+    });
+
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
       ? state.history.filter((e) => e.original.toLowerCase().includes(query) || e.result.toLowerCase().includes(query))
@@ -1336,7 +1351,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
     if (!filtered.length) {
       listContainer.append(element(doc, "li", { className: "ctpo-hint" }, [
-        query ? "没有匹配的历史记录。" : (state.settings.historyLimit === 0 ? "历史保留设置为 0。" : "暂无历史记录。"),
+        query ? "没有匹配的优化历史。" : (state.settings.historyLimit === 0 ? "历史保留设置为 0。" : "暂无优化历史。"),
       ]));
       return;
     }
@@ -1367,7 +1382,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const batchActions = element(doc, "div", { className: "ctpo-history-batch-actions" });
 
     if (selectedCount > 0) {
-      const batchPinBtn = actionButton(doc, "批量置顶", "batch-pin-history", { icon: "star", title: "将选中的记录批量置顶" });
+      const batchPinBtn = actionButton(doc, "批量收藏", "batch-pin-history", { icon: "star", title: "将选中的记录批量收藏并置顶" });
       batchPinBtn.addEventListener("click", async () => {
         try {
           for (const id of view.selectedHistoryIds) {
@@ -1379,21 +1394,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           renderHistory(view, listContainer, searchQuery);
         } catch (e) {
           setNotice(e.message, "error");
-        }
-      });
-
-      const batchPreviewBtn = actionButton(doc, "批量预览", "batch-preview-history", { icon: "eye", title: "预览选中的第一条记录" });
-      batchPreviewBtn.addEventListener("click", () => {
-        const firstSelected = state.history.find((e) => view.selectedHistoryIds.has(e.id));
-        if (firstSelected) {
-          showPreview({
-            original: firstSelected.original,
-            result: firstSelected.result,
-            clarifications: firstSelected.clarifications,
-            mode: firstSelected.mode,
-            context: null,
-            fromHistory: true,
-          });
         }
       });
 
@@ -1419,7 +1419,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         });
       });
 
-      batchActions.append(batchPinBtn, batchPreviewBtn, batchDeleteBtn);
+      batchActions.append(batchPinBtn, batchDeleteBtn);
     }
 
     batchBar.append(batchLeft, batchActions);
@@ -1442,23 +1442,36 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         renderHistory(view, listContainer, searchQuery);
       });
 
-      const preview = element(doc, "div", { className: "ctpo-history-copy" }, [
-        element(doc, "div", { className: "ctpo-history-preview", title: entry.original }, [
-          isPinned ? element(doc, "span", { className: "ctpo-pinned-badge" }, ["📌 置顶"]) : null,
+      // Hover Tooltip Card with rich previews
+      const hoverCard = element(doc, "div", { className: "ctpo-history-hover-card" }, [
+        element(doc, "div", { className: "ctpo-history-hover-title" }, ["📝 原始提示词："]),
+        element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.original]),
+        element(doc, "div", { className: "ctpo-history-hover-title", style: "margin-top: 6px;" }, ["✨ 优化结果预览："]),
+        element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.result.length > 260 ? `${entry.result.slice(0, 260)}...` : entry.result]),
+      ]);
+
+      const preview = element(doc, "div", { className: "ctpo-history-copy", title: "" }, [
+        element(doc, "div", { className: "ctpo-history-preview" }, [
+          isPinned ? element(doc, "span", { className: "ctpo-pinned-badge" }, ["⭐ 已收藏"]) : null,
           entry.original,
         ]),
         element(doc, "div", { className: "ctpo-history-date" }, [new Date(entry.createdAt).toLocaleString()]),
+        hoverCard,
       ]);
 
-      const pinBtn = actionButton(doc, isPinned ? "已置顶" : "置顶", "toggle-pin-history", {
+      const pinBtn = actionButton(doc, isPinned ? "已收藏" : "收藏", "toggle-pin-history", {
         icon: isPinned ? "starFilled" : "star",
-        title: isPinned ? "取消置顶" : "置顶收藏",
+        title: isPinned ? "取消收藏" : "收藏并默认置顶（不受数量清理限制）",
       });
       pinBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         try {
           const res = await callNode("toggle-pin-history", { id: entry.id });
-          entry.isPinned = res.isPinned;
+          if (Array.isArray(res.entries)) {
+            state.history = res.entries;
+          } else {
+            entry.isPinned = res.isPinned;
+          }
           renderHistory(view, listContainer, searchQuery);
         } catch (error) {
           setNotice(error.message, "error");
@@ -1505,11 +1518,21 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         delBtn,
       ]);
 
-      const itemEl = element(doc, "li", { className: "ctpo-history-item", "data-pinned": isPinned ? "true" : "false" }, [
+      const itemEl = element(doc, "li", {
+        className: "ctpo-history-item",
+        "data-pinned": isPinned ? "true" : "false",
+      }, [
         check,
         preview,
         actions,
       ]);
+
+      // Click on text to toggle expand/collapse
+      preview.addEventListener("click", (e) => {
+        if (e.target === check) return;
+        itemEl.setAttribute("data-expanded", itemEl.getAttribute("data-expanded") === "true" ? "false" : "true");
+      });
+
       ul.append(itemEl);
     }
     listContainer.append(ul);

@@ -437,7 +437,7 @@
   color: var(--ctpo-text, #ffffff);
   border: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.15));
   border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
   min-width: 200px;
@@ -448,6 +448,15 @@
   position: fixed;
   z-index: 2147483002;
   animation: ctpo-pop-in 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root.electron-light [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu,
+.electron-light [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu,
+[data-codex-tweaks-ct-prompt-optimizer] .electron-light .ctpo-composer-menu {
+  background: #ffffff;
+  color: #111827;
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-section-label {
@@ -695,6 +704,7 @@
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-item {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -727,22 +737,84 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  cursor: pointer;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-preview {
   color: var(--ctpo-text);
   font-size: 12.5px;
-  line-height: 1.4;
-  white-space: nowrap;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  word-break: break-word;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-item[data-expanded="true"] .ctpo-history-preview {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  max-height: none;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-date {
   color: var(--ctpo-muted);
   font-size: 11px;
   line-height: 1.2;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-hover-card {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 10px;
+  right: 10px;
+  background: var(--ctpo-card, #1e1e24);
+  color: var(--ctpo-text, #ffffff);
+  border: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.2));
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+  z-index: 2147483004;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 150ms ease, transform 150ms ease, visibility 150ms ease;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.electron-light [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-hover-card,
+[data-codex-tweaks-ct-prompt-optimizer] .electron-light .ctpo-history-hover-card {
+  background: #ffffff;
+  color: #111827;
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-copy:hover .ctpo-history-hover-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-hover-title {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--ctpo-accent, #3b82f6);
+  margin-bottom: 2px;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-hover-text {
+  color: var(--ctpo-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-item > .ctpo-actions {
