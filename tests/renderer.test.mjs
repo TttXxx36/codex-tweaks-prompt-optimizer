@@ -551,7 +551,7 @@ test("settings layout groups long fields and keeps dense content readable", asyn
   assert.match(css, /\.ctpo-card\s*\{(?=[^}]*background:\s*var\(--ctpo-card\);)(?=[^}]*border-radius:\s*14px;)(?=[^}]*box-shadow:\s*var\(--ctpo-shadow\);)/s);
   assert.match(css, /\.ctpo-grid\s*\{(?=[^}]*display:\s*grid;)(?=[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);)/s);
   assert.match(css, /\.ctpo-debug-output\s*\{(?=[^}]*max-height:\s*240px;)(?=[^}]*min-height:\s*144px;)/s);
-  assert.match(css, /\.ctpo-history-item > \.ctpo-actions\s*\{(?=[^}]*flex-direction:\s*column;)(?=[^}]*margin:\s*0;)/s);
+  assert.match(css, /\.ctpo-history-item > \.ctpo-actions\s*\{(?=[^}]*flex-direction:\s*row;)(?=[^}]*margin:\s*0;)/s);
   assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.ctpo-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
 });
 
@@ -645,16 +645,18 @@ test("renderer provides custom modal dialogs for profile creation, renaming and 
   assert.match(css, /\.ctpo-modal-dialog/);
 });
 
-test("renderer provides modern IDE composer menu layout and user-defined preset CRUD", async () => {
+test("renderer provides batch operations for history items and collapsible diagnostics with guide", async () => {
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
-  assert.match(source, /ctpo-menu-section-label/);
-  assert.match(source, /ctpo-menu-item/);
-  assert.match(source, /add-preset/);
-  assert.match(source, /rename-preset/);
-  assert.match(source, /delete-preset/);
-  assert.match(css, /\.ctpo-menu-item/);
-  assert.match(css, /\.ctpo-menu-section-label/);
+  assert.match(source, /ctpo-history-batch-bar/);
+  assert.match(source, /batch-pin-history/);
+  assert.match(source, /batch-delete-history/);
+  assert.match(source, /ctpo-debug-details/);
+  assert.match(source, /ctpo-debug-summary/);
+  assert.match(source, /ctpo-debug-guide/);
+  assert.match(css, /\.ctpo-history-batch-bar/);
+  assert.match(css, /\.ctpo-debug-details/);
+  assert.match(css, /\.ctpo-debug-guide/);
 });
 
 

@@ -1250,6 +1250,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (existing) existing.remove();
 
     const overlay = element(doc, "div", { className: "ctpo-modal-overlay" });
+    overlay.setAttribute(ROOT_ATTRIBUTE, "");
     const modal = element(doc, "div", { className: "ctpo-modal-dialog", role: "dialog", "aria-modal": "true" });
     
     const titleEl = element(doc, "h3", { className: "ctpo-modal-title" }, [title]);
@@ -1324,24 +1325,125 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   }
 
-  const renderHistory = (view, list, searchQuery = "") => {
-    list.replaceChildren();
+  const renderHistory = (view, listContainer, searchQuery = "") => {
+    listContainer.replaceChildren();
+    if (!view.selectedHistoryIds) view.selectedHistoryIds = new Set();
+
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
       ? state.history.filter((e) => e.original.toLowerCase().includes(query) || e.result.toLowerCase().includes(query))
       : state.history;
 
     if (!filtered.length) {
-      list.append(element(doc, "li", { className: "ctpo-hint" }, [
+      listContainer.append(element(doc, "li", { className: "ctpo-hint" }, [
         query ? "没有匹配的历史记录。" : (state.settings.historyLimit === 0 ? "历史保留设置为 0。" : "暂无历史记录。"),
       ]));
       return;
     }
 
+    // Batch Action Bar
+    const batchBar = element(doc, "div", { className: "ctpo-history-batch-bar" });
+    const selectAllCheck = element(doc, "input", {
+      type: "checkbox",
+      className: "ctpo-history-checkbox",
+      "aria-label": "全选历史记录",
+      checked: filtered.length > 0 && filtered.every((e) => view.selectedHistoryIds.has(e.id)),
+    });
+    selectAllCheck.addEventListener("change", () => {
+      if (selectAllCheck.checked) {
+        for (const e of filtered) view.selectedHistoryIds.add(e.id);
+      } else {
+        for (const e of filtered) view.selectedHistoryIds.delete(e.id);
+      }
+      renderHistory(view, listContainer, searchQuery);
+    });
+
+    const selectedCount = [...view.selectedHistoryIds].filter((id) => filtered.some((e) => e.id === id)).length;
+    const batchLeft = element(doc, "div", { className: "ctpo-history-batch-left" }, [
+      selectAllCheck,
+      element(doc, "span", {}, [selectedCount > 0 ? `已选 ${selectedCount} 项` : "全选"]),
+    ]);
+
+    const batchActions = element(doc, "div", { className: "ctpo-history-batch-actions" });
+
+    if (selectedCount > 0) {
+      const batchPinBtn = actionButton(doc, "批量置顶", "batch-pin-history", { icon: "star", title: "将选中的记录批量置顶" });
+      batchPinBtn.addEventListener("click", async () => {
+        try {
+          for (const id of view.selectedHistoryIds) {
+            await callNode("toggle-pin-history", { id, pin: true });
+            const item = state.history.find((e) => e.id === id);
+            if (item) item.isPinned = true;
+          }
+          view.selectedHistoryIds.clear();
+          renderHistory(view, listContainer, searchQuery);
+        } catch (e) {
+          setNotice(e.message, "error");
+        }
+      });
+
+      const batchPreviewBtn = actionButton(doc, "批量预览", "batch-preview-history", { icon: "eye", title: "预览选中的第一条记录" });
+      batchPreviewBtn.addEventListener("click", () => {
+        const firstSelected = state.history.find((e) => view.selectedHistoryIds.has(e.id));
+        if (firstSelected) {
+          showPreview({
+            original: firstSelected.original,
+            result: firstSelected.result,
+            clarifications: firstSelected.clarifications,
+            mode: firstSelected.mode,
+            context: null,
+            fromHistory: true,
+          });
+        }
+      });
+
+      const batchDeleteBtn = actionButton(doc, "批量删除", "batch-delete-history", { icon: "trash", kind: "danger", title: "删除所有选中的记录" });
+      batchDeleteBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "批量删除历史记录",
+          message: `确认删除选中的 ${selectedCount} 条优化历史记录吗？该操作不可撤销。`,
+          confirmText: "确认删除",
+          isDanger: true,
+          onConfirm: async () => {
+            try {
+              for (const id of view.selectedHistoryIds) {
+                await callNode("delete-history", { id });
+                state.history = state.history.filter((item) => item.id !== id);
+              }
+              view.selectedHistoryIds.clear();
+              renderHistory(view, listContainer, searchQuery);
+            } catch (e) {
+              setNotice(e.message, "error");
+            }
+          },
+        });
+      });
+
+      batchActions.append(batchPinBtn, batchPreviewBtn, batchDeleteBtn);
+    }
+
+    batchBar.append(batchLeft, batchActions);
+    listContainer.append(batchBar);
+
+    const ul = element(doc, "ul", { className: "ctpo-history-list" });
+
     for (const entry of filtered) {
       const isPinned = Boolean(entry.isPinned);
+      const isChecked = view.selectedHistoryIds.has(entry.id);
+
+      const check = element(doc, "input", {
+        type: "checkbox",
+        className: "ctpo-history-checkbox",
+        checked: isChecked,
+      });
+      check.addEventListener("change", () => {
+        if (check.checked) view.selectedHistoryIds.add(entry.id);
+        else view.selectedHistoryIds.delete(entry.id);
+        renderHistory(view, listContainer, searchQuery);
+      });
+
       const preview = element(doc, "div", { className: "ctpo-history-copy" }, [
-        element(doc, "div", { className: "ctpo-history-preview" }, [
+        element(doc, "div", { className: "ctpo-history-preview", title: entry.original }, [
           isPinned ? element(doc, "span", { className: "ctpo-pinned-badge" }, ["📌 置顶"]) : null,
           entry.original,
         ]),
@@ -1350,34 +1452,35 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
       const pinBtn = actionButton(doc, isPinned ? "已置顶" : "置顶", "toggle-pin-history", {
         icon: isPinned ? "starFilled" : "star",
-        title: isPinned ? "取消置顶" : "置顶收藏（防止被自动清理）",
+        title: isPinned ? "取消置顶" : "置顶收藏",
       });
-      pinBtn.addEventListener("click", async () => {
+      pinBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
         try {
           const res = await callNode("toggle-pin-history", { id: entry.id });
           entry.isPinned = res.isPinned;
-          view.render();
+          renderHistory(view, listContainer, searchQuery);
         } catch (error) {
           setNotice(error.message, "error");
         }
       });
 
-      const actions = element(doc, "div", { className: "ctpo-actions" }, [
-        pinBtn,
-        actionButton(doc, "预览", "history-preview", { icon: "eye" }),
-        actionButton(doc, "删除", "history-delete", { icon: "trash", kind: "danger" }),
-      ]);
+      const previewBtn = actionButton(doc, "预览", "history-preview", { icon: "eye" });
+      previewBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showPreview({
+          original: entry.original,
+          result: entry.result,
+          clarifications: entry.clarifications,
+          mode: entry.mode,
+          context: null,
+          fromHistory: true,
+        });
+      });
 
-      actions.querySelector('[data-ctpo-action="history-preview"]').addEventListener("click", () => showPreview({
-        original: entry.original,
-        result: entry.result,
-        clarifications: entry.clarifications,
-        mode: entry.mode,
-        context: null,
-        fromHistory: true,
-      }));
-
-      actions.querySelector('[data-ctpo-action="history-delete"]').addEventListener("click", () => {
+      const delBtn = actionButton(doc, "删除", "history-delete", { icon: "trash", kind: "danger" });
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
         showModalDialog({
           title: "删除历史记录",
           message: "确认删除此条优化历史记录吗？该操作不可撤销。",
@@ -1387,7 +1490,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
             try {
               await callNode("delete-history", { id: entry.id });
               state.history = state.history.filter((item) => item.id !== entry.id);
-              view.render();
+              view.selectedHistoryIds.delete(entry.id);
+              renderHistory(view, listContainer, searchQuery);
             } catch (error) {
               setNotice(error.message, "error");
             }
@@ -1395,9 +1499,20 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         });
       });
 
-      const itemEl = element(doc, "li", { className: "ctpo-history-item", "data-pinned": isPinned ? "true" : "false" }, [preview, actions]);
-      list.append(itemEl);
+      const actions = element(doc, "div", { className: "ctpo-actions ctpo-history-item-actions" }, [
+        pinBtn,
+        previewBtn,
+        delBtn,
+      ]);
+
+      const itemEl = element(doc, "li", { className: "ctpo-history-item", "data-pinned": isPinned ? "true" : "false" }, [
+        check,
+        preview,
+        actions,
+      ]);
+      ul.append(itemEl);
     }
+    listContainer.append(ul);
   };
 
   const buildSettingsView = (container, { embedded = false } = {}) => {
@@ -1937,6 +2052,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       historyCard.append(historyBottomActions);
 
       // Card 6: 临时定位诊断
+      // Card 6: 临时定位诊断
       const debugCard = element(doc, "section", {
         className: "ctpo-card",
         "aria-labelledby": `${view.id}-debug-geometry`,
@@ -1944,12 +2060,32 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       });
       debugCard.append(
         element(doc, "h2", { id: `${view.id}-debug-geometry` }, ["临时定位诊断"]),
-        element(doc, "p", { className: "ctpo-hint" }, ["仅在本次会话记录 Composer、锚点、按钮和视口几何；不记录输入内容、API Key、地址或请求数据。"]),
+        element(doc, "p", { className: "ctpo-hint" }, ["仅在开发或排查按钮定位异常时使用；默认关闭且不记录任何输入内容或 API Key。"]),
       );
+
+      const debugDetails = element(doc, "details", { className: "ctpo-debug-details" });
+      const debugSummary = element(doc, "summary", { className: "ctpo-debug-summary" }, [
+        element(doc, "span", {}, ["🛠️ 展开 / 折叠定位诊断测试工具"]),
+        element(doc, "span", { className: "ctpo-badge", style: "font-size: 11px; opacity: 0.8;" }, [state.debugGeometry ? "诊断已开启" : "默认隐藏"]),
+      ]);
+
+      const debugContent = element(doc, "div", { className: "ctpo-debug-content" });
+
+      const debugGuide = element(doc, "div", { className: "ctpo-debug-guide" }, [
+        element(doc, "strong", {}, ["📖 定位诊断测试操作步骤："]),
+        element(doc, "ol", {}, [
+          element(doc, "li", {}, ["开启下方的「启用临时定位诊断」开关；"]),
+          element(doc, "li", {}, ["返回主界面，在 Composer 输入框中粘贴或输入任意一段提示词；"]),
+          element(doc, "li", {}, ["观察 Composer 附近是否正常出现「✦ 优化 ⌵」按钮；"]),
+          element(doc, "li", {}, ["回到此设置卡片，点击「选择诊断文本（Ctrl+C 复制）」导出诊断 JSON 并反馈给开发者；"]),
+          element(doc, "li", {}, ["测试完成后，可随时关闭开关或点击「清空诊断」释放临时会话数据。"]),
+        ]),
+      ]);
+
       const debugSwitchLabel = element(doc, "label", { className: "ctpo-switch-row" });
       const debugSwitchCopy = element(doc, "span", {}, [
         element(doc, "span", { className: "ctpo-label" }, ["启用临时定位诊断"]),
-        element(doc, "span", { className: "ctpo-hint" }, ["打开后请粘贴一次，再导出下方 JSON。关闭或停用包后记录不会写入磁盘。"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["打开后请在输入框键入一次，再复制下方诊断 JSON。关闭或停用后记录不写入磁盘。"]),
       ]);
       const debugSwitch = element(doc, "input", {
         type: "checkbox",
@@ -1958,8 +2094,12 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         "aria-label": "启用临时定位诊断",
         checked: state.debugGeometry,
       });
-      debugSwitch.addEventListener("change", () => setDebugGeometry(debugSwitch.checked));
+      debugSwitch.addEventListener("change", () => {
+        setDebugGeometry(debugSwitch.checked);
+        view.render();
+      });
       debugSwitchLabel.append(debugSwitchCopy, debugSwitch);
+
       const debugOutput = element(doc, "textarea", {
         className: "ctpo-debug-output",
         "aria-label": "定位诊断输出",
@@ -1969,6 +2109,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       });
       debugOutput.value = JSON.stringify(state.debugGeometryReports, null, 2);
       view.debugOutput = debugOutput;
+
       const debugActions = element(doc, "div", { className: "ctpo-actions" });
       const selectDebug = actionButton(doc, "选择诊断文本（Ctrl+C 复制）", "select-debug-geometry", { icon: "copy", title: "选择不含输入内容的几何诊断 JSON" });
       selectDebug.addEventListener("click", () => {
@@ -1983,7 +2124,10 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         setInlineNotice("定位诊断记录已清空。", "success");
       });
       debugActions.append(selectDebug, clearDebug);
-      debugCard.append(debugSwitchLabel, debugActions, debugOutput);
+
+      debugContent.append(debugGuide, debugSwitchLabel, debugActions, debugOutput);
+      debugDetails.append(debugSummary, debugContent);
+      debugCard.append(debugDetails);
 
       // Card 7: 卸载前清理数据
       const cleanupCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-cleanup`, style: "margin-top: 16px;" });
