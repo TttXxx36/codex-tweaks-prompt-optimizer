@@ -66,6 +66,7 @@ class FakeElement {
     if (selector.includes("[data-message-id]") && this.attributes["data-message-id"] !== undefined) return true;
     if (selector.includes("[data-command-palette]") && this.attributes["data-command-palette"] !== undefined) return true;
     if (selector.includes("[data-command-menu]") && this.attributes["data-command-menu"] !== undefined) return true;
+    if (selector.includes("[data-composer-overlay-floating-ui]") && this.attributes["data-composer-overlay-floating-ui"] !== undefined) return true;
     if (selector.includes("[data-composer-placement]") && this.attributes["data-composer-placement"] !== undefined) return true;
     if (selector.includes("[role=menu]") && this.getAttribute("role") === "menu") return true;
     if (selector.includes("[role=listbox]") && this.getAttribute("role") === "listbox") return true;
@@ -295,6 +296,74 @@ test("excludes slash command palettes from Composer control discovery", () => {
   assert.equal(isExcludedFromComposer(commandItem), true);
 });
 
+test("does not use a portaled Composer overlay command as the initial model anchor", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "work" });
+  const modelPicker = new FakeElement("button", { role: "button", "aria-label": "5.6 Terra" });
+  const commandOverlay = new FakeElement("div", { "data-composer-overlay-floating-ui": "true" });
+  const commandModel = new FakeElement("button", { role: "button", textContent: "模型" });
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  commandOverlay.append(commandModel);
+  composerShell.append(modelPicker, composer, commandOverlay);
+  composerShell.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) return [commandModel, modelPicker];
+    return [];
+  };
+
+  assert.equal(findComposerActionAnchor(composer), modelPicker);
+});
+
+test("keeps a context control in the Composer footer portal as the preferred anchor", () => {
+  const footer = new FakeElement("section", { "data-thread-scroll-footer": "true" });
+  const portal = new FakeElement("div", { "data-above-composer-portal": "true" });
+  const contextWindow = new FakeElement("button", { role: "button", "aria-label": "Context window" });
+  const modelPicker = new FakeElement("button", {
+    role: "button",
+    "aria-haspopup": "listbox",
+    "aria-label": "5.6 Terra",
+  });
+  const inputWrapper = new FakeElement("div");
+  const composer = new FakeElement("textarea", { placeholder: "Message", value: "原文" });
+  portal.append(contextWindow);
+  footer.append(portal, modelPicker, inputWrapper);
+  inputWrapper.append(composer);
+  footer.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) return [contextWindow, modelPicker];
+    return [];
+  };
+
+  assert.equal(findComposerRegion(composer), footer);
+  assert.equal(findComposerActionAnchor(composer), contextWindow);
+});
+
+test("uses only a same-conversation above-Composer portal outside the local shell", () => {
+  const composerShell = new FakeElement("section", { "data-composer-placement": "chatgpt" });
+  const modelPicker = new FakeElement("button", {
+    role: "button",
+    "aria-haspopup": "listbox",
+    "aria-label": "5.6 Terra",
+  });
+  const composer = new FakeElement("textarea", {
+    "data-conversation-id": "conversation-7",
+    placeholder: "Message",
+    value: "原文",
+  });
+  const portal = new FakeElement("div", {
+    "data-above-composer-portal": "true",
+    "data-above-composer-conversation-id": "conversation-7",
+  });
+  const contextWindow = new FakeElement("button", { role: "button", "aria-label": "Context window" });
+  portal.append(contextWindow);
+  composerShell.append(modelPicker, composer);
+  composerShell.querySelectorAll = (selector) => {
+    if (selector.includes("button") || selector.includes("[aria-haspopup]")) return [modelPicker];
+    return [];
+  };
+  portal.querySelectorAll = (selector) => selector.includes("button") ? [contextWindow] : [];
+  composer.ownerDocument.querySelectorAll = () => [portal];
+
+  assert.equal(findComposerActionAnchor(composer), contextWindow);
+});
+
 test("positions the optimizer in its own overlay instead of mutating the host toolbar", async () => {
   const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /composerButtonHost/);
@@ -353,6 +422,10 @@ test("accepts x/y rectangles from host layout shims", () => {
 
 test("does not produce an origin fallback for an unmeasurable anchor", () => {
   assert.equal(getComposerButtonPosition({}, { width: 74, height: 28 }, { width: 1500, height: 800 }), null);
+  assert.equal(
+    getComposerButtonPosition({ left: 0, top: 0, width: 0, height: 0 }, { width: 74, height: 28 }, { width: 1500, height: 800 }),
+    null,
+  );
 });
 
 test("uses the nearest Composer frame for panel anchoring", () => {
@@ -450,6 +523,13 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
   assert.match(css, /\.ctpo-settings-dialog-backdrop\s*\{(?=[^}]*align-items:\s*center;)(?=[^}]*justify-content:\s*center;)(?=[^}]*position:\s*absolute;)/s);
   assert.match(css, /\.ctpo-settings-dialog\s*\{(?=[^}]*max-height:\s*min\(820px, calc\(100vh - 48px\)\);)(?=[^}]*overflow:\s*hidden;)/s);
+});
+
+test("scopes every optimizer control rule to the package root", async () => {
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(css, /\[data-codex-tweaks-ct-prompt-optimizer\] \.ct-prompt-optimizer-button\s*\{/);
+  assert.match(css, /\[data-codex-tweaks-ct-prompt-optimizer\] \.ct-prompt-optimizer-menu-button\s*\{/);
+  assert.doesNotMatch(css, /(?:^|\n)\.ct-prompt-optimizer-(?:button|menu-button|restore)(?::|\s|\{|\.)/);
 });
 
 test("keeps the optimizer button centered beside its semantic Composer anchor", async () => {

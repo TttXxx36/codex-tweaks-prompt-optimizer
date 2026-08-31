@@ -26,6 +26,12 @@ const EXCLUDED_SELECTOR = [
   "[data-command-list]",
   "[data-suggestion-list]",
   "[data-suggestions]",
+  "[data-composer-overlay-floating-ui]",
+  "[data-radix-popper-content-wrapper]",
+  "[data-radix-menu-content]",
+  "[data-radix-command-root]",
+  "[data-floating-ui-portal]",
+  "[cmdk-root]",
   "[class*=command-menu]",
   "[class*=command_menu]",
   "[class*=command-palette]",
@@ -213,6 +219,7 @@ function isComposerRegion(element) {
   return tagName === "form"
     || element.getAttribute?.("data-composer") != null
     || element.getAttribute?.("data-composer-placement") != null
+    || element.getAttribute?.("data-thread-scroll-footer") != null
     || /composer/.test(testId);
 }
 
@@ -225,16 +232,35 @@ export function findComposerRegion(composer) {
 }
 
 function findComposerControl(composer, selector, matches) {
-  const region = findComposerRegion(composer);
-  const controls = [...(region?.querySelectorAll?.(selector) ?? [])];
+  const controls = findComposerSearchRoots(composer).flatMap((root) => [...(root.querySelectorAll?.(selector) ?? [])]);
   return controls.find(matches) ?? null;
 }
 
+function findComposerSearchRoots(composer) {
+  if (!composer) return [];
+  const body = composer.ownerDocument?.body;
+  const roots = [];
+  for (let current = composer; current && current !== body; current = current.parentElement) {
+    if (isComposerRegion(current) && !roots.includes(current)) roots.push(current);
+  }
+  const fallback = findComposerRegion(composer);
+  if (fallback && !roots.includes(fallback)) roots.push(fallback);
+
+  const conversationId = composerConversationId(composer);
+  const portalSelector = "[data-above-composer-portal], [data-above-composer-queue-portal]";
+  const portals = [...(composer.ownerDocument?.querySelectorAll?.(portalSelector) ?? [])];
+  for (const portal of portals) {
+    if (roots.includes(portal)) continue;
+    const portalConversationId = portal.getAttribute?.("data-above-composer-conversation-id");
+    if (portalConversationId && portalConversationId === conversationId) roots.push(portal);
+  }
+  return roots;
+}
+
 export function findModelPicker(composer) {
-  const region = findComposerRegion(composer);
-  const controls = [...(region?.querySelectorAll?.(
+  const controls = findComposerSearchRoots(composer).flatMap((root) => [...(root.querySelectorAll?.(
     "button, [role=button], [role=combobox], [aria-haspopup], [data-testid*=model], select",
-  ) ?? [])];
+  ) ?? [])]);
   return controls
     .map((control) => ({ control, score: modelPickerScore(control) }))
     .filter(({ score }) => score > 0)
@@ -266,10 +292,9 @@ function contextWindowScore(element) {
 }
 
 function findComposerContextWindow(composer) {
-  const region = findComposerRegion(composer);
-  const controls = [...(region?.querySelectorAll?.(
+  const controls = findComposerSearchRoots(composer).flatMap((root) => [...(root.querySelectorAll?.(
     "button, [role=button], [role=combobox], [aria-haspopup], [aria-label], [title], [data-testid], [data-context-window], [data-context], [data-background-info], [class*=context-window], [class*=context_window], [class*=contextWindow], [class*=background-info], [class*=background_info], select",
-  ) ?? [])];
+  ) ?? [])]);
   return controls
     .map((control) => ({ control, score: contextWindowScore(control) }))
     .filter(({ score }) => score > 0)
@@ -319,7 +344,7 @@ export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport 
   const buttonHeight = Math.max(0, Number(buttonRect?.height) || 0);
   const viewportWidth = Number(viewport?.width);
   const viewportHeight = Number(viewport?.height);
-  if (![left, top, anchorHeight].every(Number.isFinite)) return null;
+  if (![left, top, anchorHeight].every(Number.isFinite) || anchorHeight <= 0) return null;
   const requestedLeft = left - buttonWidth - Number(gap || 0);
   const maxLeft = Number.isFinite(viewportWidth) ? Math.max(4, viewportWidth - buttonWidth - 4) : requestedLeft;
   const requestedTop = top + (anchorHeight - buttonHeight) / 2;
