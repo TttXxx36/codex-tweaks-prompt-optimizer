@@ -44,3 +44,10 @@
 - Root cause candidate: 宿主可能替换 Composer 或其模型选择器节点；仅凭合成 DOM 已确认旧 `previousAnchor` 可以跨 Composer 复用，但真实宿主的坐标系、变换和候选节点仍需实机证据确认。
 - Fix: 增加会话级、默认关闭的临时几何诊断开关，记录 Composer/锚点/模型选择器/按钮的脱敏 `getBoundingClientRect()`、视口、`visualViewport` 和 transform/zoom 元数据；不记录输入文本、Key、地址或请求数据。
 - Prevention: 复现时在粘贴前后各保留一组 trace，并同时核对 `composerRect`、`previousAnchorRect`、`modelPickerRect`、`buttonRect`、viewport 和 transform/zoom；自动化 trace 只能缩小根因范围，不能替代真实宿主截图与数据。
+
+## 设置页视觉重构的宿主验收边界
+
+- Symptom: 设置页源码和契约测试已通过，但仍无法确认卡片对比度、文本换行、宿主背景处理和窄屏几何是否符合实际 Codex Tweaks 窗口。
+- Root cause: 设置页由宿主托管渲染，仓库没有独立的可运行预览入口；源码测试只能验证结构/样式契约，不能代替相同 viewport、主题、数据和密度下的宿主截图。
+- Fix: 先复用现有 semantic DOM、主题 token 和断点做最小 CSS-first 改造；将 `design-qa.md` 明确标为 `blocked`，直到包在目标宿主中重载并取得配对截图。
+- Prevention: 不把自动化测试或单独的参考截图当成视觉通过证据；实机 QA 必须同时记录源图和改后宿主图，至少检查桌面/窄屏、明暗主题、长文本、历史动作和诊断输出高度。

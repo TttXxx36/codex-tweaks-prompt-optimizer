@@ -535,11 +535,24 @@ test("settings stylesheet centers the pane and follows Codex light and dark host
   const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
   assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*760px\);)(?=[^}]*margin:\s*0 auto;)/s);
   assert.match(css, /:root:not\(\.electron-light\)\s+\[data-codex-tweaks-ct-prompt-optimizer\]/);
-  assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);/s);
+  assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*112px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);
   assert.match(css, /\.ctpo-panel\s*\{(?=[^}]*resize:\s*both;)(?=[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;)/s);
   assert.match(css, /\.ctpo-settings-dialog-backdrop\s*\{(?=[^}]*align-items:\s*center;)(?=[^}]*justify-content:\s*center;)(?=[^}]*position:\s*absolute;)/s);
   assert.match(css, /\.ctpo-settings-dialog\s*\{(?=[^}]*max-height:\s*min\(820px, calc\(100vh - 48px\)\);)(?=[^}]*overflow:\s*hidden;)/s);
+});
+
+test("settings layout groups long fields and keeps dense content readable", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(source, /const baseUrlField = field[\s\S]*?baseUrlField\.classList\.add\("ctpo-field-full"\)/);
+  assert.match(source, /const keyField = field[\s\S]*?keyField\.classList\.add\("ctpo-field-full"\)/);
+  assert.match(source, /const modelField = field[\s\S]*?modelField\.classList\.add\("ctpo-field-full"\)/);
+  assert.match(css, /\.ctpo-card\s*\{(?=[^}]*background:\s*var\(--ctpo-card\);)(?=[^}]*border-radius:\s*14px;)(?=[^}]*box-shadow:\s*var\(--ctpo-shadow\);)/s);
+  assert.match(css, /\.ctpo-grid\s*\{(?=[^}]*display:\s*grid;)(?=[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);)/s);
+  assert.match(css, /\.ctpo-debug-output\s*\{(?=[^}]*max-height:\s*240px;)(?=[^}]*min-height:\s*144px;)/s);
+  assert.match(css, /\.ctpo-history-item > \.ctpo-actions\s*\{(?=[^}]*flex-direction:\s*column;)(?=[^}]*margin:\s*0;)/s);
+  assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.ctpo-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
 });
 
 test("scopes every optimizer control rule to the package root", async () => {

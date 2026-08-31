@@ -1047,7 +1047,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const baseUrl = element(doc, "input", { id: createSettingsId(view, "base-url"), type: "url", autocomplete: "url", placeholder: "https://api.example.com/v1" });
       baseUrl.value = settings.baseUrl;
       baseUrl.addEventListener("input", () => { state.settings.baseUrl = baseUrl.value; });
-      grid.append(field(doc, "API 地址", baseUrl, "远程服务必须使用 HTTPS；localhost、127.0.0.1 和 ::1 可使用 HTTP。"));
+      const baseUrlField = field(doc, "API 地址", baseUrl, "远程服务必须使用 HTTPS；localhost、127.0.0.1 和 ::1 可使用 HTTP。");
+      baseUrlField.classList.add("ctpo-field-full");
+      grid.append(baseUrlField);
 
       const keyInput = element(doc, "input", { id: createSettingsId(view, "api-key"), type: view.keyVisible ? "text" : "password", autocomplete: "new-password", placeholder: settings.apiKeyConfigured ? "已配置，留空表示保持不变" : "输入 API Key" });
       keyInput.value = view.keyDraft;
@@ -1055,7 +1057,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const keyToggle = actionButton(doc, view.keyVisible ? "隐藏" : "显示", "toggle-key", { icon: "eye", title: "显示或隐藏 API Key" });
       keyToggle.addEventListener("click", () => { view.keyVisible = !view.keyVisible; view.render(); });
       const keyLine = element(doc, "div", { className: "ctpo-inline" }, [keyInput, keyToggle]);
-      grid.append(field(doc, "API Key", keyLine, "界面默认遮蔽；显示/隐藏只作用于当前输入草稿，已保存 Key 不回显。此包不宣称操作系统级加密。"));
+      const keyField = field(doc, "API Key", keyLine, "界面默认遮蔽；显示/隐藏只作用于当前输入草稿，已保存 Key 不回显。此包不宣称操作系统级加密。");
+      keyField.classList.add("ctpo-field-full");
+      grid.append(keyField);
 
       const modelInput = element(doc, "input", { id: createSettingsId(view, "model"), type: "text", autocomplete: "off", placeholder: "例如 gpt-5.6", "aria-label": "手动填写模型名称" });
       modelInput.value = settings.model;
@@ -1095,7 +1099,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         }
       });
       const modelLine = element(doc, "div", { className: "ctpo-inline ctpo-model-line" }, [modelInput, modelSelect, modelsButton]);
-      grid.append(field(doc, "模型名称", modelLine, "获取模型后可从下拉框选择，也可手动填写模型名称。"));
+      const modelField = field(doc, "模型名称", modelLine, "获取模型后可从下拉框选择，也可手动填写模型名称。");
+      modelField.classList.add("ctpo-field-full");
+      grid.append(modelField);
       providerCard.append(grid);
 
       const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
