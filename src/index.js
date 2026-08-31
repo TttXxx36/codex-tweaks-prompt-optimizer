@@ -12,6 +12,7 @@ import {
   getComposerButtonPosition,
   isExcludedFromComposer,
   isSameComposerContext,
+  findModelPicker,
   modelOptionValues,
   readInputText,
   replaceInputText,
@@ -172,6 +173,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     uiRoot: null,
     composerButtonHost: null,
     notice: { text: "", kind: "" },
+    debugGeometry: false,
+    debugGeometryReports: [],
     scanTimer: null,
     observer: null,
     toastTimer: null,
@@ -300,6 +303,109 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     width: Math.max(1, Number(doc.defaultView?.innerWidth || doc.documentElement?.clientWidth || PANEL_DEFAULT_WIDTH + PANEL_MARGIN * 2)),
     height: Math.max(1, Number(doc.defaultView?.innerHeight || doc.documentElement?.clientHeight || PANEL_DEFAULT_HEIGHT + PANEL_MARGIN * 2)),
   });
+
+  const finiteNumber = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
+  const geometryRect = (target) => {
+    const rect = target?.getBoundingClientRect?.();
+    if (!rect) return null;
+    const left = finiteNumber(rect.left) ?? finiteNumber(rect.x);
+    const top = finiteNumber(rect.top) ?? finiteNumber(rect.y);
+    const width = finiteNumber(rect.width);
+    const height = finiteNumber(rect.height);
+    const right = finiteNumber(rect.right) ?? (left !== null && width !== null ? left + width : null);
+    const bottom = finiteNumber(rect.bottom) ?? (top !== null && height !== null ? top + height : null);
+    return { left, top, right, bottom, width, height, x: finiteNumber(rect.x) ?? left, y: finiteNumber(rect.y) ?? top };
+  };
+
+  const geometryIdentity = (target) => {
+    if (!target) return null;
+    const attribute = (name) => target.getAttribute?.(name) || "";
+    return {
+      tag: String(target.tagName || "").toLowerCase(),
+      role: attribute("role"),
+      id: String(target.id || ""),
+      testId: attribute("data-testid"),
+      ariaLabel: attribute("aria-label"),
+      title: attribute("title"),
+      connected: target.isConnected !== false,
+    };
+  };
+
+  const transformZoom = (target) => {
+    const style = target && doc.defaultView?.getComputedStyle?.(target);
+    if (!style) return null;
+    return {
+      position: style.position || "",
+      transform: style.transform || "",
+      zoom: style.zoom || "",
+      contain: style.contain || "",
+      willChange: style.willChange || "",
+    };
+  };
+
+  const visualViewportGeometry = () => {
+    const visualViewport = doc.defaultView?.visualViewport;
+    return {
+      width: finiteNumber(visualViewport?.width),
+      height: finiteNumber(visualViewport?.height),
+      offsetLeft: finiteNumber(visualViewport?.offsetLeft),
+      offsetTop: finiteNumber(visualViewport?.offsetTop),
+      scale: finiteNumber(visualViewport?.scale),
+      devicePixelRatio: finiteNumber(doc.defaultView?.devicePixelRatio),
+    };
+  };
+
+  const refreshDebugOutputViews = () => {
+    const serialized = JSON.stringify(state.debugGeometryReports, null, 2);
+    for (const view of state.settingsViews) {
+      if (view.debugOutput) view.debugOutput.value = serialized;
+    }
+  };
+
+  const recordGeometry = (entry, phase, previousAnchor) => {
+    if (!state.debugGeometry || !entry) return;
+    const composerRegion = findComposerRegion(entry.element);
+    const modelPicker = findModelPicker(entry.element);
+    const oldAnchor = previousAnchor === undefined ? entry.anchor : previousAnchor;
+    state.debugGeometryReports.push({
+      schema: "ctpo-geometry-v1",
+      at: new Date().toISOString(),
+      phase,
+      composerRect: geometryRect(composerRegion),
+      composerInputRect: geometryRect(entry.element),
+      previousAnchorRect: geometryRect(oldAnchor),
+      previousAnchor: geometryIdentity(oldAnchor),
+      anchorRect: geometryRect(entry.anchor),
+      anchor: geometryIdentity(entry.anchor),
+      modelPickerRect: geometryRect(modelPicker),
+      modelPicker: geometryIdentity(modelPicker),
+      buttonRect: geometryRect(entry.button),
+      menuButtonRect: geometryRect(entry.menuButton),
+      buttonHostRect: geometryRect(composerButtonHost),
+      viewport: {
+        ...viewportSize(),
+        scrollX: finiteNumber(doc.defaultView?.scrollX),
+        scrollY: finiteNumber(doc.defaultView?.scrollY),
+        clientWidth: finiteNumber(doc.documentElement?.clientWidth),
+        clientHeight: finiteNumber(doc.documentElement?.clientHeight),
+      },
+      visualViewport: visualViewportGeometry(),
+      transformZoom: {
+        composer: transformZoom(composerRegion),
+        previousAnchor: transformZoom(oldAnchor),
+        anchor: transformZoom(entry.anchor),
+        modelPicker: transformZoom(modelPicker),
+        button: transformZoom(entry.button),
+        buttonHost: transformZoom(composerButtonHost),
+      },
+    });
+    if (state.debugGeometryReports.length > 60) state.debugGeometryReports.shift();
+    refreshDebugOutputViews();
+  };
 
   const panelSessionIsCurrent = (panelState) => {
     if (!panelState) return false;
@@ -611,12 +717,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const positionComposerButton = (entry) => {
+  const positionComposerButton = (entry, options = {}) => {
+    const previousAnchor = Object.prototype.hasOwnProperty.call(options, "previousAnchor") ? options.previousAnchor : entry.anchor;
+    const phase = options.phase || "position";
     const anchorRect = entry.anchor?.getBoundingClientRect?.();
     if (!anchorRect || !state.composerButtonHost) {
       entry.button.hidden = true;
       if (entry.menuButton) entry.menuButton.hidden = true;
       if (entry.restoreButton) entry.restoreButton.hidden = true;
+      recordGeometry(entry, `${phase}:hidden-no-anchor`, previousAnchor);
       return false;
     }
     entry.button.style.pointerEvents = "auto";
@@ -642,6 +751,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       entry.button.hidden = true;
       if (entry.menuButton) entry.menuButton.hidden = true;
       if (entry.restoreButton) entry.restoreButton.hidden = true;
+      recordGeometry(entry, `${phase}:hidden-invalid-position`, previousAnchor);
       return false;
     }
     entry.button.style.left = `${position.left}px`;
@@ -656,16 +766,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       entry.restoreButton.style.left = `${position.left + groupWidth + 4}px`;
       entry.restoreButton.style.top = `${position.top}px`;
     }
+    recordGeometry(entry, phase, previousAnchor);
     return true;
   };
 
-  const placeComposerButton = (entry, anchor) => {
+  const placeComposerButton = (entry, anchor, options = {}) => {
     if (!anchor?.parentElement || !state.composerButtonHost) return false;
     if (entry.button.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.button);
     if (entry.menuButton?.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.menuButton);
     if (entry.restoreButton && entry.restoreButton.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.restoreButton);
     entry.anchor = anchor;
-    return positionComposerButton(entry);
+    return positionComposerButton(entry, options);
   };
 
   const attachComposer = (composer) => {
@@ -690,14 +801,26 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       hidden: true,
     }, [svgIcon(doc, "chevron")]);
     const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false };
+    entry.debugPasteListener = () => {
+      recordGeometry(entry, "paste-event", entry.anchor);
+      scheduleScan();
+    };
+    entry.debugInputListener = () => {
+      recordGeometry(entry, "input-event", entry.anchor);
+      scheduleScan();
+    };
+    composer.addEventListener?.("paste", entry.debugPasteListener);
+    composer.addEventListener?.("input", entry.debugInputListener);
     button.addEventListener("click", () => startOptimization(entry));
     menuButton.addEventListener("click", () => openComposerMenu(entry));
-    placeComposerButton(entry, anchor);
+    placeComposerButton(entry, anchor, { previousAnchor: null, phase: "attach" });
     state.attached.set(composer, entry);
   };
 
   const detachComposer = (entry) => {
     if (state.composerMenu?.entry === entry) closeComposerMenu();
+    entry.element?.removeEventListener?.("paste", entry.debugPasteListener);
+    entry.element?.removeEventListener?.("input", entry.debugInputListener);
     entry.button?.remove();
     entry.menuButton?.remove();
     entry.restoreButton?.remove();
@@ -715,13 +838,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     for (const entry of [...state.attached.values()]) {
       if (!entry.element.isConnected || !entry.button.isConnected) detachComposer(entry);
       else {
+        const previousAnchor = entry.anchor;
         const nextAnchor = findComposerActionAnchor(entry.element, entry.anchor);
-        if (nextAnchor && nextAnchor !== entry.anchor) placeComposerButton(entry, nextAnchor);
-        else if (nextAnchor) positionComposerButton(entry);
+        if (nextAnchor && nextAnchor !== entry.anchor) placeComposerButton(entry, nextAnchor, { previousAnchor, phase: "scan-anchor-change" });
+        else if (nextAnchor) positionComposerButton(entry, { previousAnchor, phase: "scan" });
         else {
           entry.button.hidden = true;
           if (entry.menuButton) entry.menuButton.hidden = true;
           if (entry.restoreButton) entry.restoreButton.hidden = true;
+          recordGeometry(entry, "scan:no-anchor", previousAnchor);
         }
       }
     }
@@ -731,6 +856,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const scheduleScan = () => {
     if (state.scanTimer || state.disposed) return;
     state.scanTimer = setTimeout(scanComposers, 120);
+  };
+
+  const setDebugGeometry = (enabled) => {
+    state.debugGeometry = Boolean(enabled);
+    refreshDebugOutputViews();
+    if (state.debugGeometry) {
+      setNotice("临时定位诊断已开启，仅记录几何和控件标识，不记录输入内容。", "success");
+      scheduleScan();
+    } else {
+      setNotice("临时定位诊断已关闭；现有诊断记录仍保留在本次会话中。");
+    }
   };
 
   const reflowComposerButtons = (event) => {
@@ -743,15 +879,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       || scroller === doc.body;
     for (const entry of state.attached.values()) {
       if (!isGlobalScroll && (isExcludedFromComposer(scroller) || !scroller.contains?.(entry.anchor))) continue;
+      const previousAnchor = entry.anchor;
       const nextAnchor = findComposerActionAnchor(entry.element, entry.anchor);
       if (!nextAnchor) {
         entry.button.hidden = true;
         if (entry.menuButton) entry.menuButton.hidden = true;
         if (entry.restoreButton) entry.restoreButton.hidden = true;
+        recordGeometry(entry, "reflow:no-anchor", previousAnchor);
       } else if (nextAnchor !== entry.anchor) {
-        placeComposerButton(entry, nextAnchor);
+        placeComposerButton(entry, nextAnchor, { previousAnchor, phase: "reflow-anchor-change" });
       } else {
-        positionComposerButton(entry);
+        positionComposerButton(entry, { previousAnchor, phase: "reflow" });
       }
     }
   };
@@ -804,6 +942,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       keyDraft: "",
       keyVisible: false,
       busy: false,
+      debugOutput: null,
       render: null,
     };
     const setInlineNotice = (text, kind = "") => {
@@ -840,7 +979,55 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       });
       switchLabel.append(switchCopy, enabled);
       generalCard.append(switchLabel);
-      wrapper.append(generalCard);
+
+      const debugCard = element(doc, "section", {
+        className: "ctpo-card",
+        "aria-labelledby": `${view.id}-debug-geometry`,
+        "data-ctpo-settings-section": "debug-geometry",
+      });
+      debugCard.append(
+        element(doc, "h2", { id: `${view.id}-debug-geometry` }, ["临时定位诊断"]),
+        element(doc, "p", { className: "ctpo-hint" }, ["仅在本次会话记录 Composer、锚点、按钮和视口几何；不记录输入内容、API Key、地址或请求数据。"]),
+      );
+      const debugSwitchLabel = element(doc, "label", { className: "ctpo-switch-row" });
+      const debugSwitchCopy = element(doc, "span", {}, [
+        element(doc, "span", { className: "ctpo-label" }, ["启用临时定位诊断"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["打开后请粘贴一次，再导出下方 JSON。关闭或停用包后记录不会写入磁盘。"]),
+      ]);
+      const debugSwitch = element(doc, "input", {
+        type: "checkbox",
+        className: "ctpo-switch",
+        role: "switch",
+        "aria-label": "启用临时定位诊断",
+        checked: state.debugGeometry,
+      });
+      debugSwitch.addEventListener("change", () => setDebugGeometry(debugSwitch.checked));
+      debugSwitchLabel.append(debugSwitchCopy, debugSwitch);
+      const debugOutput = element(doc, "textarea", {
+        className: "ctpo-debug-output",
+        "aria-label": "定位诊断输出",
+        readOnly: true,
+        spellcheck: "false",
+        wrap: "off",
+      });
+      debugOutput.value = JSON.stringify(state.debugGeometryReports, null, 2);
+      view.debugOutput = debugOutput;
+      const debugActions = element(doc, "div", { className: "ctpo-actions" });
+      const selectDebug = actionButton(doc, "选择诊断文本（Ctrl+C 复制）", "select-debug-geometry", { icon: "copy", title: "选择不含输入内容的几何诊断 JSON" });
+      selectDebug.addEventListener("click", () => {
+        debugOutput.focus?.();
+        debugOutput.select?.();
+        setInlineNotice("诊断 JSON 已选中，请按 Ctrl+C 复制；内容不含输入文本。", "success");
+      });
+      const clearDebug = actionButton(doc, "清空诊断", "clear-debug-geometry", { icon: "trash", kind: "danger", title: "清空本次会话的定位诊断记录" });
+      clearDebug.addEventListener("click", () => {
+        state.debugGeometryReports.length = 0;
+        refreshDebugOutputViews();
+        setInlineNotice("定位诊断记录已清空。", "success");
+      });
+      debugActions.append(selectDebug, clearDebug);
+      debugCard.append(debugSwitchLabel, debugActions, debugOutput);
+      wrapper.append(generalCard, debugCard);
 
       const providerCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-provider` });
       providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, ["Provider 配置"]));

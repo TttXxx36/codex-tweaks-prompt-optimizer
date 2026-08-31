@@ -86,6 +86,25 @@ test("validates safe API URLs and bounded endpoint fallback", () => {
   ]);
 });
 
+test("uses the package manifest version for the provider User-Agent", async (t) => {
+  let userAgent = "";
+  const server = await makeServer((request, response) => {
+    userAgent = request.headers["user-agent"];
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ data: [{ id: "test-model" }] }));
+  });
+  t.after(() => server.close());
+  const fixture = await withRuntime(server, "openaiChatCompletions");
+  try {
+    const listed = await fixture.runtime.invoke("list-models");
+    assert.equal(listed.status, "ok", JSON.stringify(listed));
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    assert.equal(userAgent, `codex-tweaks-ct-prompt-optimizer/${manifest.version}`);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("builds the three supported non-streaming protocol payloads", () => {
   const common = { model: "m", instruction: "only output prompt", text: "请总结这段话。" };
   const responses = buildOptimizationPayload({ protocol: "openaiResponses", ...common });

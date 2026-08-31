@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -50,7 +51,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 const CONFIG_FILE = "config.json";
 const HISTORY_FILE = "history.json";
-const PACKAGE_VERSION = "0.1.8";
+const PACKAGE_VERSION = createRequire(import.meta.url)("../package.json").version;
 
 function asTrimmedString(value, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;

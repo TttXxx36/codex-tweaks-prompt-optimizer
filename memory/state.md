@@ -1,6 +1,6 @@
 # Session state (Shisan Xinuo Agent Workflow)
 
-- Current goal: 将 Composer 命令面板锚点修复安全同步到 GitHub `main`。
-- Decisions made: 先把远端 `main` 精确提交备份到独立分支；由于本地与远端历史分叉，保留远端提交并以非强制快进方式发布；不创建 Release，不修改宿主 Codex。
-- Constraints: 只发布本包源码、测试和任务记录；不强推、不删除分支、不处理密钥；真实 Codex 视觉 smoke 仍需用户重载后确认。
-- Progress + next step: 备份分支已创建并指向 `094367ce`；集成提交已完成本地 43/43 测试与语法检查，GitHub `main` 已更新并核验为 `7d21c647`；待用户在实际 Codex 中重载后完成视觉 smoke。
+- Current goal: 为 `ct-prompt-optimizer` 维护一份可供新会话接续的完整开发交接手册和后续任务清单。
+- Decisions made: 手册以当前本地源码、Git `main`、远端公开 Release 和项目任务记录为证据；`src/node.js` 从 `package.json` 读取唯一运行时版本；不把未经 Windows/macOS 实机验证的视觉结果写成已完成；临时定位诊断默认关闭、仅保存在会话内且不记录输入内容；本轮不创建 Release、不修改宿主 Codex。
+- Constraints: 不记录 API Key、Authorization、用户 Provider 私密地址；保留现有分支和未相关的用户修改；无 CI 和宿主视觉证据不足仍记录为技术债务或待补充项。
+- Progress + next step: `P0-01` 源码与回归测试已完成，自动测试 49/49；P0-02 已取得 Windows 管理器和当前 Codex Composer 的只读证据，但三模式交互、重载/停用清理仍未验收。用户新增报告：粘贴后优化按钮/菜单跳到 Composer 外框左侧；合成探针已确认旧锚点可跨 Composer 复用，源码已加入临时几何诊断开关，真实宿主 DOM 路径仍待 trace。实机 ManagedPackages 的 `c61a168…` 副本仍保留旧 `0.1.8` 运行时常量，需重新编译/注入后验证。当前 `main`/`origin/main`/`v0.1.10` 基线仍为 `c61a168b52e43bcd920727bdbb8ae310030bce55`；本轮变更已通过本地检查，待提交和推送。

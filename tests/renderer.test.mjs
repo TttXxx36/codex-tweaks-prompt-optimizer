@@ -382,6 +382,23 @@ test("positions the optimizer in its own overlay instead of mutating the host to
   assert.doesNotMatch(source, /findModelPicker\([^)]*\)\.style\./);
 });
 
+test("provides opt-in redacted geometry diagnostics around paste and layout", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /debugGeometryReports/);
+  assert.match(source, /schema: "ctpo-geometry-v1"/);
+  assert.match(source, /previousAnchorRect:/);
+  assert.match(source, /modelPickerRect:/);
+  assert.match(source, /visualViewport:/);
+  assert.match(source, /transformZoom:/);
+  assert.match(source, /entry\.debugPasteListener/);
+  assert.match(source, /"paste-event"/);
+  assert.match(source, /removeEventListener\?\.\("paste"/);
+  assert.match(source, /启用临时定位诊断/);
+  assert.match(source, /选择诊断文本（Ctrl\+C 复制）/);
+  const recordBody = source.slice(source.indexOf("const recordGeometry"), source.indexOf("const panelSessionIsCurrent"));
+  assert.doesNotMatch(recordBody, /readInputText|replaceInputText|textContent|innerText|\.value/);
+});
+
 test("marks the settings UI extension optional for hosts without the adapter", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(manifest.codexTweaks?.ui?.settingsSections?.required, false);

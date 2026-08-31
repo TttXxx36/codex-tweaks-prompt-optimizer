@@ -338,6 +338,18 @@
   margin-top: 12px;
 }
 
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-debug-output {
+  box-sizing: border-box;
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 12px;
+  min-height: 180px;
+  resize: vertical;
+  width: 100%;
+}
+
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-status {
   border-radius: 8px;
   color: var(--ctpo-muted);

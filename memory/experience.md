@@ -22,3 +22,24 @@
 - Root cause: API v3 的 `codexTweaks.ui.settingsSections` 默认 `required` 为 `true`；声明了设置入口但没有明确标记可选时，宿主在调用包 `activate()` 之前就会因当前 UI 适配器缺失而拒绝创建扩展。
 - Fix: 当设置页不是包运行必需条件时，在 manifest 中设置 `settingsSections.required: false`；Renderer 继续通过可选链检查 `ui.settingsSections.register`，缺失时跳过设置入口但保留 Composer/Node 功能。
 - Prevention: manifest 回归测试必须解析 `package.json` 并断言可降级 UI 扩展为 `required: false`；不要用 Node 权限或私有 DOM bridge 绕过宿主 UI 能力差异。
+
+## Node 运行时版本与包清单漂移
+
+- Symptom: Node 请求的 `User-Agent` 继续报告旧版本，导致日志、Provider 反馈和公开 Release 难以对应。
+- Root cause: `src/node.js` 维护了独立的 `PACKAGE_VERSION` 硬编码，未从包根目录的 `package.json` 读取版本。
+- Fix: 使用 Node 内置 `createRequire(import.meta.url)` 读取 `../package.json` 的 `version`，并用真实请求级测试校验 `User-Agent`。
+- Prevention: 发布前将 `package.json` 作为唯一包版本来源；回归测试读取包清单并断言外发版本标识一致，不能只更新硬编码常量。
+
+## Windows 管理器版本与实机运行副本漂移
+
+- Symptom: Codex Tweaks 管理器显示包源版本已更新且“已激活”，但实机运行副本仍可能保留旧源码或旧运行时常量。
+- Root cause: 管理器展示的是包清单/编译记录；ManagedPackages 可能同时保留多个历史副本，且源码更新不会自动替换当前原子编译副本。
+- Fix: Windows smoke 同时核对管理器页面、ManagedPackages 当前哈希副本的 `package.json`/入口源码和运行日志；版本或源码不一致时标记为“未部署验证”，不把管理器显示版本当作运行时证据。
+- Prevention: 每次 P0-01 或发布后先重新编译/重新注入，再验证实际 User-Agent 或对应运行行为；保留包哈希、编译时间和日志时间线，避免只截图包列表。
+
+## 粘贴后 Composer 锚点漂移的诊断
+
+- Symptom: 用户把内容粘贴进 Composer 后，优化按钮组从 Composer 底部操作区跳到输入框外框左侧。
+- Root cause candidate: 宿主可能替换 Composer 或其模型选择器节点；仅凭合成 DOM 已确认旧 `previousAnchor` 可以跨 Composer 复用，但真实宿主的坐标系、变换和候选节点仍需实机证据确认。
+- Fix: 增加会话级、默认关闭的临时几何诊断开关，记录 Composer/锚点/模型选择器/按钮的脱敏 `getBoundingClientRect()`、视口、`visualViewport` 和 transform/zoom 元数据；不记录输入文本、Key、地址或请求数据。
+- Prevention: 复现时在粘贴前后各保留一组 trace，并同时核对 `composerRect`、`previousAnchorRect`、`modelPickerRect`、`buttonRect`、viewport 和 transform/zoom；自动化 trace 只能缩小根因范围，不能替代真实宿主截图与数据。
