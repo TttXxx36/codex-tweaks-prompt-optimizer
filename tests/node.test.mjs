@@ -543,10 +543,177 @@ test("registers exactly the fixed Node RPC surface and cleans registrations", as
       "list-history",
       "delete-history",
       "clear-history",
+      "toggle-pin-history",
+      "select-profile",
+      "save-profile",
+      "delete-profile",
+      "select-preset",
+      "save-preset",
+      "delete-preset",
     ]);
   } finally {
     runtime.dispose();
     assert.equal(unregistered, names.length);
+    await rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("streaming output emits SSE chunks in real time and can be disabled via toggle", async (t) => {
+  const server = await makeServer((request, response) => {
+    response.setHeader("content-type", "text/event-stream; charset=utf-8");
+    response.write('data: {"choices":[{"delta":{"content":"优"}}]}\n\n');
+    response.write('data: {"choices":[{"delta":{"content":"化"}}]}\n\n');
+    response.write('data: {"choices":[{"delta":{"content":"成"}}]}\n\n');
+    response.write('data: {"choices":[{"delta":{"content":"功"}}]}\n\n');
+    response.write("data: [DONE]\n\n");
+    response.end();
+  });
+  t.after(() => server.close());
+
+  const emittedEvents = [];
+  const fakeRpc = {
+    emit(event, data) {
+      emittedEvents.push({ event, data });
+    },
+    handle() { return () => {}; },
+  };
+
+  const fixture = await withRuntime(server, "openaiChatCompletions");
+  const dataDirectory = fixture.dataDirectory;
+  const runtime = createNodeRuntime({
+    dataDirectory,
+    packageDirectory: PACKAGE_DIRECTORY,
+    rpc: fakeRpc,
+  });
+
+  try {
+    // 1. Test streaming enabled
+    const res = await runtime.invoke("optimize", { operationId: "stream-test-1", text: "测试提示词" });
+    assert.equal(res.status, "ok");
+    assert.equal(res.result, "优化成功");
+    assert.equal(res.streamed, true);
+    assert.equal(emittedEvents.length >= 4, true);
+    assert.equal(emittedEvents[0].event, "optimizer-chunk");
+    assert.equal(emittedEvents[0].data.operationId, "stream-test-1");
+
+    // 2. Test streaming disabled via toggle
+    await runtime.invoke("save-settings", { streaming: false });
+    const nonStreamServer = await makeServer((request, response) => {
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ choices: [{ message: { content: "非流式优化结果" } }] }));
+    });
+    t.after(() => nonStreamServer.close());
+
+    await runtime.invoke("save-settings", { baseUrl: nonStreamServer.baseUrl });
+    const nonStreamRes = await runtime.invoke("optimize", { operationId: "non-stream-test", text: "测试提示词" });
+    assert.equal(nonStreamRes.status, "ok");
+    assert.equal(nonStreamRes.result, "非流式优化结果");
+    assert.equal(nonStreamRes.streamed, false);
+  } finally {
+    runtime.dispose();
+    await fixture.cleanup();
+  }
+});
+
+test("supports multi-provider profiles with switching and persistence", async (t) => {
+  const dataDirectory = await makeTempDirectory();
+  const runtime = createNodeRuntime({ dataDirectory, packageDirectory: PACKAGE_DIRECTORY });
+  try {
+    const loaded = await runtime.invoke("load-settings");
+    assert.equal(loaded.status, "ok");
+    assert.equal(Array.isArray(loaded.settings.profiles), true);
+    assert.equal(loaded.settings.profiles.length, 1);
+
+    // Save a secondary profile
+    const saveRes = await runtime.invoke("save-profile", {
+      profile: {
+        id: "anthropic-profile",
+        name: "Anthropic Claude",
+        protocol: "anthropicMessages",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: "sk-ant-test",
+        model: "claude-3-5-sonnet-20241022",
+        streaming: true,
+      },
+    });
+    assert.equal(saveRes.status, "ok");
+    assert.equal(saveRes.settings.profiles.length, 2);
+
+    // Switch active profile
+    const switchRes = await runtime.invoke("select-profile", { profileId: "anthropic-profile" });
+    assert.equal(switchRes.status, "ok");
+    assert.equal(switchRes.settings.activeProfileId, "anthropic-profile");
+    assert.equal(switchRes.settings.protocol, "anthropicMessages");
+    assert.equal(switchRes.settings.baseUrl, "https://api.anthropic.com");
+    assert.equal(switchRes.settings.model, "claude-3-5-sonnet-20241022");
+    assert.equal(switchRes.settings.apiKeyConfigured, true);
+
+    // Delete non-active profile
+    const delRes = await runtime.invoke("delete-profile", { profileId: "default-profile" });
+    assert.equal(delRes.status, "ok");
+    assert.equal(delRes.settings.profiles.length, 1);
+  } finally {
+    runtime.dispose();
+    await rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("supports prompt scenario presets and custom preset creation", async () => {
+  const dataDirectory = await makeTempDirectory();
+  const runtime = createNodeRuntime({ dataDirectory, packageDirectory: PACKAGE_DIRECTORY });
+  try {
+    const initial = await runtime.invoke("load-settings");
+    assert.equal(initial.settings.presets.length >= 5, true);
+    assert.equal(initial.settings.activePresetId, "general");
+
+    // Select code preset
+    const selectRes = await runtime.invoke("select-preset", { presetId: "code" });
+    assert.equal(selectRes.status, "ok");
+    assert.equal(selectRes.settings.activePresetId, "code");
+    assert.equal(selectRes.settings.instruction.includes("编程"), true);
+
+    // Save custom preset
+    const customRes = await runtime.invoke("save-preset", {
+      preset: {
+        id: "custom-sql",
+        name: "SQL 优化",
+        instruction: "优化为高性能 SQL 查询",
+      },
+    });
+    assert.equal(customRes.status, "ok");
+    assert.equal(customRes.settings.presets.some((p) => p.id === "custom-sql"), true);
+  } finally {
+    runtime.dispose();
+    await rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("supports pinning history entries to prevent FIFO eviction", async () => {
+  const dataDirectory = await makeTempDirectory();
+  const runtime = createNodeRuntime({ dataDirectory, packageDirectory: PACKAGE_DIRECTORY });
+  try {
+    await runtime.invoke("save-settings", {
+      historyLimit: 5,
+      historyRecord: { id: "item-pinned-1", original: "重要提示词", result: "重要结果", isPinned: true },
+    });
+    // Add 6 more items (exceeding limit of 5)
+    for (let i = 0; i < 6; i++) {
+      await runtime.invoke("save-settings", {
+        historyRecord: { id: `item-normal-${i}`, original: `普通提示词 ${i}`, result: `普通结果 ${i}` },
+      });
+    }
+    const history = await runtime.invoke("list-history");
+    assert.equal(history.status, "ok");
+    // Pinned item must NOT be evicted even though 6 items were added with limit 5!
+    assert.equal(history.entries.some((e) => e.id === "item-pinned-1"), true);
+    assert.equal(history.entries.find((e) => e.id === "item-pinned-1").isPinned, true);
+
+    // Toggle pin off
+    const toggleRes = await runtime.invoke("toggle-pin-history", { id: "item-pinned-1" });
+    assert.equal(toggleRes.status, "ok");
+    assert.equal(toggleRes.isPinned, false);
+  } finally {
+    runtime.dispose();
     await rm(dataDirectory, { recursive: true, force: true });
   }
 });

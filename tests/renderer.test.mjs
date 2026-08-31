@@ -597,3 +597,38 @@ test("renders fetched models in a visible selector while keeping manual input", 
   assert.match(source, /modelSelect\.addEventListener\("change"/);
   assert.match(source, /modelInput\.addEventListener\("input"/);
 });
+
+test("renderer provides markdown view, token diff view, and shortcut keys in preview panel", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /function renderSimpleMarkdown/);
+  assert.match(source, /function renderSimpleDiff/);
+  assert.match(source, /computeLcsDiff/);
+  assert.match(source, /ctpo-tab-group/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /\(event\.ctrlKey \|\| event\.metaKey\) && event\.key === "Enter"/);
+});
+
+test("renderer subscribes to streaming chunk events and supports live cancellation", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /node\.on\("optimizer-chunk"/);
+  assert.match(source, /isStreaming/);
+  assert.match(source, /data-ctpo-action="stop-stream"|stop-stream/);
+  assert.match(source, /ctpo-streaming-tag/);
+});
+
+test("renderer supports multi-provider profiles and scenario presets in settings & menu", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /select-profile/);
+  assert.match(source, /save-profile/);
+  assert.match(source, /delete-profile/);
+  assert.match(source, /select-preset/);
+  assert.match(source, /ctpo-menu-presets/);
+});
+
+test("renderer provides history search filtering and star/pin toggle", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /ctpo-history-search/);
+  assert.match(source, /toggle-pin-history/);
+  assert.match(source, /data-pinned/);
+  assert.match(source, /ctpo-pinned-badge/);
+});

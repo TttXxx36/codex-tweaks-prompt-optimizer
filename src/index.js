@@ -28,6 +28,7 @@ import {
 const RENDERER_DEFAULTS = {
   schemaVersion: 1,
   enabled: true,
+  streaming: true,
   mode: "direct",
   protocol: "openaiResponses",
   baseUrl: "",
@@ -35,6 +36,10 @@ const RENDERER_DEFAULTS = {
   model: "",
   instruction: "你是一名专业的提示词优化专家。请在不改变原始意图的前提下，将用户提供的提示词改写得更清晰、具体、可执行、可验证。\n\n要求：\n1. 保留原始提示词的语言、事实、URL、代码、数字、专有名词和明确的输出格式约束。\n2. 不要编造缺失事实；必要时使用清晰的占位符。\n3. 只输出可以直接使用的优化后提示词，不要添加解释、前言、后记或外层代码围栏。\n4. 不要读取或假设任何会话历史、文件、附件或项目上下文。",
   historyLimit: 10,
+  activeProfileId: "default-profile",
+  profiles: [],
+  activePresetId: "general",
+  presets: [],
 };
 
 const MODE_OPTIONS = [
@@ -94,10 +99,15 @@ function svgIcon(doc, name) {
     check: "M5 12l4 4L19 6",
     cancel: "M6 6l12 12M18 6L6 18",
     chevron: "m7 10 5 5 5-5",
+    star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+    starFilled: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+    code: "m16 18 6-6-6-6M8 6l-6 6 6 6",
+    diff: "M9 14l-4-4 4-4m6 0l4 4-4 4",
+    search: "m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z",
   };
   const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("fill", "none");
+  svg.setAttribute("fill", name === "starFilled" ? "currentColor" : "none");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("stroke", "currentColor");
   svg.setAttribute("stroke-width", "1.8");
@@ -107,6 +117,182 @@ function svgIcon(doc, name) {
   path.setAttribute("d", paths[name] ?? paths.spark);
   svg.append(path);
   return svg;
+}
+
+function renderSimpleMarkdown(doc, markdownText) {
+  const container = element(doc, "div", { className: "ctpo-markdown-view" });
+  const raw = String(markdownText ?? "").trim();
+  if (!raw) {
+    container.append(element(doc, "p", { className: "ctpo-hint" }, ["（无内容）"]));
+    return container;
+  }
+  const lines = raw.split(/\r?\n/);
+  let inCodeBlock = false;
+  let codeLines = [];
+  let currentList = null;
+  let isNumberedList = false;
+
+  const flushList = () => {
+    if (currentList) {
+      container.append(currentList);
+      currentList = null;
+    }
+  };
+
+  const flushCode = () => {
+    if (codeLines.length) {
+      const pre = element(doc, "pre");
+      const code = element(doc, "code", {}, [codeLines.join("\n")]);
+      pre.append(code);
+      container.append(pre);
+      codeLines = [];
+    }
+  };
+
+  const renderInlineFormatted = (parent, text) => {
+    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+        parent.append(element(doc, "code", {}, [part.slice(1, -1)]));
+      } else if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+        parent.append(element(doc, "strong", {}, [part.slice(2, -2)]));
+      } else if (part.startsWith("*") && part.endsWith("*") && part.length >= 2) {
+        parent.append(element(doc, "em", {}, [part.slice(1, -1)]));
+      } else {
+        parent.append(doc.createTextNode(part));
+      }
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      if (inCodeBlock) {
+        flushCode();
+        inCodeBlock = false;
+      } else {
+        flushList();
+        inCodeBlock = true;
+        codeLines = [];
+      }
+      continue;
+    }
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+
+    if (trimmed.startsWith("### ")) {
+      flushList();
+      const h3 = element(doc, "h3");
+      renderInlineFormatted(h3, trimmed.slice(4));
+      container.append(h3);
+      continue;
+    }
+    if (trimmed.startsWith("## ")) {
+      flushList();
+      const h2 = element(doc, "h2");
+      renderInlineFormatted(h2, trimmed.slice(3));
+      container.append(h2);
+      continue;
+    }
+    if (trimmed.startsWith("# ")) {
+      flushList();
+      const h1 = element(doc, "h1");
+      renderInlineFormatted(h1, trimmed.slice(2));
+      container.append(h1);
+      continue;
+    }
+
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+      if (!currentList || isNumberedList) {
+        flushList();
+        currentList = element(doc, "ul");
+        isNumberedList = false;
+      }
+      const li = element(doc, "li");
+      renderInlineFormatted(li, trimmed.slice(2));
+      currentList.append(li);
+      continue;
+    }
+
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) {
+      if (!currentList || !isNumberedList) {
+        flushList();
+        currentList = element(doc, "ol");
+        isNumberedList = true;
+      }
+      const li = element(doc, "li");
+      renderInlineFormatted(li, numMatch[2]);
+      currentList.append(li);
+      continue;
+    }
+
+    flushList();
+    const p = element(doc, "p");
+    renderInlineFormatted(p, line);
+    container.append(p);
+  }
+  flushList();
+  flushCode();
+  return container;
+}
+
+function computeLcsDiff(tokens1, tokens2) {
+  const m = tokens1.length;
+  const n = tokens2.length;
+  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (tokens1[i - 1] === tokens2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const diff = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && tokens1[i - 1] === tokens2[j - 1]) {
+      diff.unshift({ type: "same", text: tokens1[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      diff.unshift({ type: "add", text: tokens2[j - 1] });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      diff.unshift({ type: "del", text: tokens1[i - 1] });
+      i--;
+    }
+  }
+  return diff;
+}
+
+function renderSimpleDiff(doc, original, result) {
+  const container = element(doc, "div", { className: "ctpo-diff-container" });
+  const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);
+  const t1 = tokenize(original);
+  const t2 = tokenize(result);
+  const diff = computeLcsDiff(t1.slice(0, 1000), t2.slice(0, 1000));
+  for (const item of diff) {
+    if (item.type === "same") {
+      container.append(doc.createTextNode(item.text));
+    } else if (item.type === "del") {
+      container.append(element(doc, "del", { className: "ctpo-diff-del" }, [item.text]));
+    } else if (item.type === "add") {
+      container.append(element(doc, "ins", { className: "ctpo-diff-add" }, [item.text]));
+    }
+  }
+  return container;
 }
 
 function actionButton(doc, label, action, { kind = "default", icon, title, disabled = false } = {}) {
@@ -176,9 +362,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     debugGeometry: false,
     debugGeometryReports: [],
     scanTimer: null,
+    scanRaf: null,
     observer: null,
     toastTimer: null,
     cleanupRegistered: false,
+    chunkUnsubscribe: null,
   };
 
   root.setAttribute(ROOT_ATTRIBUTE, "");
@@ -190,14 +378,24 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   composerButtonHost.style.position = "fixed";
   composerButtonHost.style.zIndex = "2147482999";
   const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
+  panelHost.style.inset = "0";
+  panelHost.style.pointerEvents = "none";
+  panelHost.style.position = "fixed";
+  panelHost.style.zIndex = "2147483000";
+  const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host" });
+  toastHost.style.inset = "0";
+  toastHost.style.pointerEvents = "none";
+  toastHost.style.position = "fixed";
+  toastHost.style.zIndex = "2147483001";
   const settingsDialogHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-settings-dialog-host" });
-  const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host", "aria-live": "polite", "aria-atomic": "true" });
-  uiRoot.append(composerButtonHost, panelHost, settingsDialogHost, toastHost);
+  uiRoot.append(composerButtonHost, panelHost, toastHost, settingsDialogHost);
   overlayParent.append(uiRoot);
   state.uiRoot = uiRoot;
   state.composerButtonHost = composerButtonHost;
   state.panelHost = panelHost;
   state.settingsDialogHost = settingsDialogHost;
+
+  let settingsRegistration = null;
 
   const setNotice = (text, kind = "") => {
     state.notice = { text, kind };
@@ -209,13 +407,23 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const showToast = (text, kind = "") => {
-    if (state.toastTimer) clearTimeout(state.toastTimer);
-    state.toastTimer = null;
-    toastHost.replaceChildren();
-    if (!text) return;
-    const toast = element(doc, "div", { className: `ctpo-toast ${kind ? `ctpo-toast-${kind}` : ""}`, role: kind === "error" ? "alert" : "status" }, [text]);
-    toastHost.append(toast);
+  const showToast = (message, kind = "info") => {
+    if (state.disposed) return;
+    if (state.toastTimer) {
+      clearTimeout(state.toastTimer);
+      state.toastTimer = null;
+    }
+    const toast = element(doc, "div", {
+      className: `ctpo-toast ctpo-toast-${kind}`,
+      role: "status",
+      "aria-live": "polite",
+    }, [message]);
+    toast.style.pointerEvents = "auto";
+    toast.style.position = "fixed";
+    toast.style.right = "16px";
+    toast.style.bottom = "16px";
+    toast.style.zIndex = "2147483001";
+    toastHost.replaceChildren(toast);
     state.toastTimer = setTimeout(() => {
       state.toastTimer = null;
       if (toast.parentElement === toastHost) toastHost.replaceChildren();
@@ -232,6 +440,25 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (isNodeResponseFailure(response)) throw errorFromNodeResponse(response);
     return response;
   };
+
+  if (typeof node?.on === "function") {
+    state.chunkUnsubscribe = node.on("optimizer-chunk", (data) => {
+      if (!data || !state.panel) return;
+      if (state.panel.operationId === data.operationId) {
+        state.panel.result = data.accumulated || state.panel.result;
+        state.panel.isStreaming = !data.isDone;
+        const resultEl = state.panelHost.querySelector?.("#ctpo-preview-result");
+        if (resultEl && resultEl.tagName === "TEXTAREA") {
+          resultEl.value = state.panel.result;
+          resultEl.scrollTop = resultEl.scrollHeight;
+        }
+        if (data.isDone) {
+          const streamingTag = state.panelHost.querySelector?.(".ctpo-streaming-tag");
+          if (streamingTag) streamingTag.remove();
+        }
+      }
+    });
+  }
 
   const refreshSettingsViews = () => {
     for (const view of state.settingsViews) view.render();
@@ -567,17 +794,52 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       role: "menu",
       "aria-label": "提示词优化菜单",
     });
+
+    const presets = Array.isArray(state.settings.presets) && state.settings.presets.length
+      ? state.settings.presets
+      : [
+        { id: "general", name: "通用优化" },
+        { id: "code", name: "编程开发" },
+        { id: "concise", name: "精准精简" },
+        { id: "cot", name: "深度推理 (CoT)" },
+        { id: "translate", name: "中英转译" },
+      ];
+
+    const presetSection = element(doc, "div", { className: "ctpo-menu-presets", style: "border-bottom: 1px solid var(--ctpo-border); padding-bottom: 4px; margin-bottom: 4px;" });
+    for (const p of presets.slice(0, 5)) {
+      const isSelected = state.settings.activePresetId === p.id;
+      const btn = element(doc, "button", {
+        type: "button",
+        role: "menuitem",
+        style: isSelected ? "font-weight: 600; color: var(--ctpo-accent);" : "",
+      }, [isSelected ? "✓ " : "   ", p.name]);
+      btn.addEventListener("click", async () => {
+        closeComposerMenu();
+        try {
+          const res = await callNode("select-preset", { presetId: p.id });
+          state.settings = { ...state.settings, ...res.settings };
+          showToast(`已切换为【${p.name}】场景预设`, "success");
+          refreshSettingsViews();
+        } catch (e) {
+          showToast(e.message, "error");
+        }
+      });
+      presetSection.append(btn);
+    }
+    menu.append(presetSection);
+
     const settings = element(doc, "button", { type: "button", role: "menuitem" }, ["提示词优化设置"]);
     settings.addEventListener("click", () => openSettings());
     const history = element(doc, "button", { type: "button", role: "menuitem" }, ["优化历史"]);
     history.addEventListener("click", () => openSettings({ focusHistory: true }));
     menu.append(settings, history);
     state.composerButtonHost.append(menu);
+
     const triggerRect = entry.button.getBoundingClientRect?.();
     const menuRect = menu.getBoundingClientRect?.();
     const viewport = viewportSize();
     const width = Number(menuRect?.width) || 176;
-    const height = Number(menuRect?.height) || 72;
+    const height = Number(menuRect?.height) || 180;
     const left = Math.max(8, Math.min((Number(triggerRect?.right) || 8) - width, viewport.width - width - 8));
     const top = Math.max(8, Math.min((Number(triggerRect?.bottom) || 8) + 4, viewport.height - height - 8));
     menu.style.left = `${Math.round(left)}px`;
@@ -620,7 +882,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const showPreview = ({ original, result, clarifications = [], mode = "preview", context = null, fromHistory = false, layout = null }) => {
+  const showPreview = ({ original, result, clarifications = [], mode = "preview", context = null, fromHistory = false, layout = null, isStreaming = false }) => {
     const inheritedLayout = layout ?? state.panel?.layout;
     state.panel = {
       kind: "preview",
@@ -630,6 +892,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       mode,
       context,
       fromHistory,
+      isStreaming,
+      viewTab: "edit",
       locationHref: documentHref(),
       layout: createPanelLayout(inheritedLayout ?? {}),
       notice: fromHistory ? "历史记录只会在你明确应用或复制时写入当前 Composer。" : "",
@@ -666,6 +930,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     entry.operation = operation;
     state.activeOperations.set(operation.id, operation);
     updateButton(entry, true);
+
     try {
       if (state.settings.mode === "clarify") {
         state.panel = {
@@ -687,13 +952,41 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         await runClarifyRound(state.panel);
         return;
       }
-      const response = await callNode("optimize", { operationId: operation.id, text: original });
+
+      const useStreaming = state.settings.streaming !== false;
+      if (useStreaming) {
+        state.panel = {
+          kind: "preview",
+          original,
+          result: "",
+          clarifications: [],
+          mode: state.settings.mode,
+          context,
+          fromHistory: false,
+          isStreaming: true,
+          viewTab: "edit",
+          locationHref: documentHref(),
+          layout: createPanelLayout(),
+          operationId: operation.id,
+          operationMethod: "optimize",
+          notice: "",
+        };
+        renderPanel();
+      }
+
+      const response = await callNode("optimize", { operationId: operation.id, text: original, stream: useStreaming });
       const result = String(response.result ?? "").trim();
+      if (state.panel && state.panel.operationId === operation.id) {
+        state.panel.result = result;
+        state.panel.isStreaming = false;
+      }
+
       if (!isSameComposerContext(context, entry.element, currentLocationHref(entry.element), original)) {
         recordPending(context, result);
         return;
       }
-      if (state.settings.mode === "direct") {
+
+      if (state.settings.mode === "direct" && !useStreaming) {
         replaceInputText(entry.element, result);
         const snapshot = { context, original, result, createdAt: new Date().toISOString() };
         ensureRestoreButton(entry, snapshot);
@@ -703,11 +996,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         } catch (error) {
           showToast(`提示词已写回，但历史保存失败：${error.message}`, "error");
         }
-      } else {
+      } else if (!useStreaming) {
         showPreview({ original, result, mode: "preview", context });
       }
     } catch (error) {
       if (error.code !== "cancelled") showToast(error.message, "error");
+      if (state.panel && state.panel.operationId === operation.id) {
+        closePanel();
+      }
     } finally {
       state.activeOperations.delete(operation.id);
       if (entry.operation?.id === operation.id) {
@@ -728,16 +1024,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       recordGeometry(entry, `${phase}:hidden-no-anchor`, previousAnchor);
       return false;
     }
-    entry.button.style.pointerEvents = "auto";
-    entry.button.style.position = "fixed";
-    entry.button.style.zIndex = "2147482999";
-    entry.button.hidden = false;
-    if (entry.menuButton) {
-      entry.menuButton.style.pointerEvents = "auto";
-      entry.menuButton.style.position = "fixed";
-      entry.menuButton.style.zIndex = "2147482999";
-      entry.menuButton.hidden = false;
-    }
     const buttonRect = entry.button.getBoundingClientRect?.() ?? {};
     const menuRect = entry.menuButton?.getBoundingClientRect?.() ?? {};
     const buttonWidth = Number(buttonRect.width) || 0;
@@ -754,14 +1040,31 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       recordGeometry(entry, `${phase}:hidden-invalid-position`, previousAnchor);
       return false;
     }
+
+    const last = entry.lastPos;
+    if (last && Math.abs(last.left - position.left) < 0.5 && Math.abs(last.top - position.top) < 0.5 && !entry.button.hidden) {
+      return true;
+    }
+    entry.lastPos = position;
+
+    entry.button.style.pointerEvents = "auto";
+    entry.button.style.position = "fixed";
+    entry.button.style.zIndex = "2147482999";
+    entry.button.hidden = false;
     entry.button.style.left = `${position.left}px`;
     entry.button.style.top = `${position.top}px`;
     if (entry.menuButton) {
+      entry.menuButton.style.pointerEvents = "auto";
+      entry.menuButton.style.position = "fixed";
+      entry.menuButton.style.zIndex = "2147482999";
       entry.menuButton.hidden = false;
       entry.menuButton.style.left = `${position.left + buttonWidth + 2}px`;
       entry.menuButton.style.top = `${position.top}px`;
     }
     if (entry.restoreButton) {
+      entry.restoreButton.style.pointerEvents = "auto";
+      entry.restoreButton.style.position = "fixed";
+      entry.restoreButton.style.zIndex = "2147482999";
       entry.restoreButton.hidden = false;
       entry.restoreButton.style.left = `${position.left + groupWidth + 4}px`;
       entry.restoreButton.style.top = `${position.top}px`;
@@ -800,7 +1103,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       title: "提示词优化菜单",
       hidden: true,
     }, [svgIcon(doc, "chevron")]);
-    const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false };
+    const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false, lastPos: null };
     entry.debugPasteListener = () => {
       recordGeometry(entry, "paste-event", entry.anchor);
       scheduleScan();
@@ -855,7 +1158,18 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
   const scheduleScan = () => {
     if (state.scanTimer || state.disposed) return;
-    state.scanTimer = setTimeout(scanComposers, 120);
+    state.scanTimer = setTimeout(() => {
+      state.scanTimer = null;
+      if (typeof doc.defaultView?.requestAnimationFrame === "function") {
+        if (state.scanRaf) cancelAnimationFrame(state.scanRaf);
+        state.scanRaf = doc.defaultView.requestAnimationFrame(() => {
+          state.scanRaf = null;
+          scanComposers();
+        });
+      } else {
+        scanComposers();
+      }
+    }, 80);
   };
 
   const setDebugGeometry = (enabled) => {
@@ -894,21 +1208,50 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  const renderHistory = (view, list) => {
+  const renderHistory = (view, list, searchQuery = "") => {
     list.replaceChildren();
-    if (!state.history.length) {
-      list.append(element(doc, "li", { className: "ctpo-hint" }, [state.settings.historyLimit === 0 ? "历史保留设置为 0。" : "暂无历史记录。"]));
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = query
+      ? state.history.filter((e) => e.original.toLowerCase().includes(query) || e.result.toLowerCase().includes(query))
+      : state.history;
+
+    if (!filtered.length) {
+      list.append(element(doc, "li", { className: "ctpo-hint" }, [
+        query ? "没有匹配的历史记录。" : (state.settings.historyLimit === 0 ? "历史保留设置为 0。" : "暂无历史记录。"),
+      ]));
       return;
     }
-    for (const entry of state.history) {
+
+    for (const entry of filtered) {
+      const isPinned = Boolean(entry.isPinned);
       const preview = element(doc, "div", { className: "ctpo-history-copy" }, [
-        element(doc, "div", { className: "ctpo-history-preview" }, [entry.original]),
+        element(doc, "div", { className: "ctpo-history-preview" }, [
+          isPinned ? element(doc, "span", { className: "ctpo-pinned-badge" }, ["📌 置顶"]) : null,
+          entry.original,
+        ]),
         element(doc, "div", { className: "ctpo-history-date" }, [new Date(entry.createdAt).toLocaleString()]),
       ]);
+
+      const pinBtn = actionButton(doc, isPinned ? "已置顶" : "置顶", "toggle-pin-history", {
+        icon: isPinned ? "starFilled" : "star",
+        title: isPinned ? "取消置顶" : "置顶收藏（防止被自动清理）",
+      });
+      pinBtn.addEventListener("click", async () => {
+        try {
+          const res = await callNode("toggle-pin-history", { id: entry.id });
+          entry.isPinned = res.isPinned;
+          view.render();
+        } catch (error) {
+          setNotice(error.message, "error");
+        }
+      });
+
       const actions = element(doc, "div", { className: "ctpo-actions" }, [
+        pinBtn,
         actionButton(doc, "预览", "history-preview", { icon: "eye" }),
         actionButton(doc, "删除", "history-delete", { icon: "trash", kind: "danger" }),
       ]);
+
       actions.querySelector('[data-ctpo-action="history-preview"]').addEventListener("click", () => showPreview({
         original: entry.original,
         result: entry.result,
@@ -917,6 +1260,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         context: null,
         fromHistory: true,
       }));
+
       actions.querySelector('[data-ctpo-action="history-delete"]').addEventListener("click", async () => {
         if (doc.defaultView?.confirm && !doc.defaultView.confirm("删除这条优化历史？")) return;
         try {
@@ -927,7 +1271,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           setNotice(error.message, "error");
         }
       });
-      list.append(element(doc, "li", { className: "ctpo-history-item" }, [preview, actions]));
+
+      const itemEl = element(doc, "li", { className: "ctpo-history-item", "data-pinned": isPinned ? "true" : "false" }, [preview, actions]);
+      list.append(itemEl);
     }
   };
 
@@ -943,6 +1289,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       keyVisible: false,
       busy: false,
       debugOutput: null,
+      historySearch: "",
       render: null,
     };
     const setInlineNotice = (text, kind = "") => {
@@ -954,6 +1301,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       if (state.notice.text) setNotice("");
     };
     container.setAttribute(ROOT_ATTRIBUTE, "");
+
     view.render = () => {
       if (state.disposed) return;
       const settings = state.settings;
@@ -967,6 +1315,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
       const generalCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-general` });
       generalCard.append(element(doc, "h2", { id: `${view.id}-general` }, ["基本设置"]));
+      
       const switchLabel = element(doc, "label", { className: "ctpo-switch-row" });
       const switchCopy = element(doc, "span", {}, [
         element(doc, "span", { className: "ctpo-label" }, ["启用优化按钮"]),
@@ -978,7 +1327,91 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         scheduleScan();
       });
       switchLabel.append(switchCopy, enabled);
-      generalCard.append(switchLabel);
+
+      const streamLabel = element(doc, "label", { className: "ctpo-switch-row", style: "margin-top: 8px;" });
+      const streamCopy = element(doc, "span", {}, [
+        element(doc, "span", { className: "ctpo-label" }, ["启用流式响应 (Streaming)"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["打字机实时展示大模型输出；若目标模型或反代不支持流式传输，可关闭此项。"]),
+      ]);
+      const streamSwitch = element(doc, "input", { type: "checkbox", className: "ctpo-switch", role: "switch", "aria-label": "启用流式响应", checked: settings.streaming !== false });
+      streamSwitch.addEventListener("change", () => {
+        state.settings.streaming = streamSwitch.checked;
+      });
+      streamLabel.append(streamCopy, streamSwitch);
+
+      generalCard.append(switchLabel, streamLabel);
+
+      const profiles = Array.isArray(settings.profiles) && settings.profiles.length ? settings.profiles : [
+        { id: "default-profile", name: "默认配置", protocol: settings.protocol, baseUrl: settings.baseUrl, model: settings.model },
+      ];
+      const profileCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-profiles` });
+      profileCard.append(element(doc, "h2", { id: `${view.id}-profiles` }, ["Provider 档案 (多配置快速切换)"]));
+      
+      const profileLine = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px; margin-bottom: 12px;" });
+      const profileSelect = element(doc, "select", { "aria-label": "选择配置档案", style: "flex: 1;" });
+      for (const p of profiles) {
+        profileSelect.append(element(doc, "option", { value: p.id, textContent: p.name || p.id }));
+      }
+      profileSelect.value = settings.activeProfileId || profiles[0].id;
+      profileSelect.addEventListener("change", async () => {
+        setViewBusy(view, true);
+        try {
+          const res = await callNode("select-profile", { profileId: profileSelect.value });
+          state.settings = { ...state.settings, ...res.settings };
+          view.keyDraft = "";
+          setInlineNotice(`已切换到【${profiles.find((p) => p.id === profileSelect.value)?.name}】`, "success");
+          view.render();
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        } finally {
+          setViewBusy(view, false);
+        }
+      });
+
+      const addProfileBtn = actionButton(doc, "+ 新增档案", "save-profile", { icon: "spark", title: "添加新模型 Provider 档案" });
+      addProfileBtn.addEventListener("click", async () => {
+        const name = doc.defaultView?.prompt?.("请输入新档案名称：", "自定义配置");
+        if (!name) return;
+        const newProf = {
+          id: `profile-${Date.now()}`,
+          name: name.trim(),
+          protocol: "openaiResponses",
+          baseUrl: "",
+          apiKey: "",
+          model: "",
+          streaming: true,
+        };
+        try {
+          const res = await callNode("save-profile", { profile: newProf });
+          await callNode("select-profile", { profileId: newProf.id });
+          state.settings = { ...state.settings, ...res.settings, activeProfileId: newProf.id };
+          view.keyDraft = "";
+          setInlineNotice(`已创建并切换到【${name}】`, "success");
+          view.render();
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        }
+      });
+
+      const delProfileBtn = actionButton(doc, "删除档案", "delete-profile", { icon: "trash", kind: "danger", title: "删除当前选中的档案" });
+      delProfileBtn.addEventListener("click", async () => {
+        if (profiles.length <= 1) {
+          setInlineNotice("至少保留一个配置档案，无法删除。", "error");
+          return;
+        }
+        if (doc.defaultView?.confirm && !doc.defaultView.confirm(`确认删除当前档案【${settings.activeProfileId}】？`)) return;
+        try {
+          const res = await callNode("delete-profile", { profileId: settings.activeProfileId });
+          state.settings = { ...state.settings, ...res.settings };
+          setInlineNotice("档案已删除。", "success");
+          view.render();
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        }
+      });
+
+      profileLine.append(profileSelect, addProfileBtn, delProfileBtn);
+      profileCard.append(profileLine);
 
       const debugCard = element(doc, "section", {
         className: "ctpo-card",
@@ -1027,11 +1460,12 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       });
       debugActions.append(selectDebug, clearDebug);
       debugCard.append(debugSwitchLabel, debugActions, debugOutput);
-      wrapper.append(generalCard, debugCard);
+      wrapper.append(generalCard, profileCard, debugCard);
 
       const providerCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-provider` });
-      providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, ["Provider 配置"]));
+      providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, ["当前档案 API 设置"]));
       const grid = element(doc, "div", { className: "ctpo-grid" });
+
       const modeSelect = element(doc, "select", { id: createSettingsId(view, "mode"), "aria-describedby": createSettingsId(view, "mode-hint") });
       for (const [value, label] of MODE_OPTIONS) modeSelect.append(element(doc, "option", { value, textContent: label }));
       modeSelect.value = settings.mode;
@@ -1042,7 +1476,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       for (const [value, label] of PROTOCOL_OPTIONS) protocolSelect.append(element(doc, "option", { value, textContent: label }));
       protocolSelect.value = settings.protocol;
       protocolSelect.addEventListener("change", () => { state.settings.protocol = protocolSelect.value; });
-      grid.append(field(doc, "API 协议", protocolSelect, "首版使用完整响应，不使用流式输出。"));
+      grid.append(field(doc, "API 协议", protocolSelect, "支持 OpenAI Responses、Chat Completions 和 Anthropic Messages。"));
 
       const baseUrl = element(doc, "input", { id: createSettingsId(view, "base-url"), type: "url", autocomplete: "url", placeholder: "https://api.example.com/v1" });
       baseUrl.value = settings.baseUrl;
@@ -1104,6 +1538,38 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       grid.append(modelField);
       providerCard.append(grid);
 
+      const presetCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-presets` });
+      presetCard.append(element(doc, "h2", { id: `${view.id}-presets` }, ["场景优化预设 & 指令"]));
+
+      const presetsList = Array.isArray(settings.presets) && settings.presets.length
+        ? settings.presets
+        : [
+          { id: "general", name: "通用优化", instruction: RENDERER_DEFAULTS.instruction },
+          { id: "code", name: "编程开发" },
+          { id: "concise", name: "精准精简" },
+          { id: "cot", name: "深度推理 (CoT)" },
+          { id: "translate", name: "中英转译" },
+        ];
+
+      const presetSelectLine = element(doc, "div", { className: "ctpo-inline", style: "margin-bottom: 8px;" });
+      const presetSelect = element(doc, "select", { style: "flex: 1;" });
+      for (const p of presetsList) {
+        presetSelect.append(element(doc, "option", { value: p.id, textContent: p.name }));
+      }
+      presetSelect.value = settings.activePresetId || "general";
+      presetSelect.addEventListener("change", async () => {
+        try {
+          const res = await callNode("select-preset", { presetId: presetSelect.value });
+          state.settings = { ...state.settings, ...res.settings };
+          setInlineNotice(`已应用【${presetsList.find((p) => p.id === presetSelect.value)?.name}】预设指令`, "success");
+          view.render();
+        } catch (e) {
+          setInlineNotice(e.message, "error");
+        }
+      });
+      presetSelectLine.append(presetSelect);
+      presetCard.append(field(doc, "选择场景预设", presetSelectLine, "可切换编程、精简、思维链推导或通用优化预设模板。"));
+
       const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
       instruction.addEventListener("input", () => { state.settings.instruction = instruction.value; });
       const resetInstruction = actionButton(doc, "恢复默认", "reset-instruction", { icon: "refresh" });
@@ -1111,17 +1577,41 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         state.settings.instruction = RENDERER_DEFAULTS.instruction;
         view.render();
       });
-      providerCard.append(field(doc, "默认优化指令", instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
-      providerCard.append(element(doc, "div", { className: "ctpo-actions" }, [resetInstruction]));
+      presetCard.append(field(doc, "当前优化指令 (Prompt)", instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
+      presetCard.append(element(doc, "div", { className: "ctpo-actions" }, [resetInstruction]));
+      wrapper.append(providerCard, presetCard);
 
+      const historyCard = element(doc, "section", {
+        className: "ctpo-card",
+        "aria-labelledby": `${view.id}-history`,
+        "data-ctpo-settings-section": "history",
+      });
+      historyCard.append(element(doc, "h2", { id: `${view.id}-history` }, ["优化历史与收藏"]));
+      
       const historyLimit = element(doc, "select", { id: createSettingsId(view, "history-limit") });
       for (const value of HISTORY_OPTIONS) historyLimit.append(element(doc, "option", { value, textContent: value === 0 ? "0（不保留）" : String(value) }));
       historyLimit.value = String(settings.historyLimit);
       historyLimit.addEventListener("change", () => { state.settings.historyLimit = Number(historyLimit.value); });
-      providerCard.append(field(doc, "历史保留数量", historyLimit, "历史只记录原文、结果、澄清回答、模式和时间，不记录 API Key、地址或模型来源。"));
+      historyCard.append(field(doc, "历史保留数量", historyLimit, "置顶收藏的历史不受数量限制。"));
 
-      const actions = element(doc, "div", { className: "ctpo-actions" });
-      const save = actionButton(doc, "保存配置", "save", { icon: "check", kind: "primary" });
+      const historySearch = element(doc, "input", {
+        type: "search",
+        className: "ctpo-history-search",
+        placeholder: "搜索历史提示词或优化结果...",
+      });
+      historySearch.value = view.historySearch;
+      const historyList = element(doc, "ul", { className: "ctpo-history-list" });
+      historySearch.addEventListener("input", () => {
+        view.historySearch = historySearch.value;
+        renderHistory(view, historyList, view.historySearch);
+      });
+      historyCard.append(historySearch);
+      renderHistory(view, historyList, view.historySearch);
+      historyCard.append(historyList);
+      wrapper.append(historyCard);
+
+      const actions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 16px;" });
+      const save = actionButton(doc, "保存配置", "save-settings", { icon: "check", kind: "primary" });
       save.addEventListener("click", async () => {
         setViewBusy(view, true);
         setInlineNotice("正在保存配置……");
@@ -1138,7 +1628,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           setViewBusy(view, false);
         }
       });
-      const clearKey = actionButton(doc, "清除 Key", "clear-key", { icon: "trash", kind: "danger" });
+      const clearKey = actionButton(doc, "清除 Key", "clear-api-key", { icon: "trash", kind: "danger" });
       clearKey.addEventListener("click", async () => {
         setViewBusy(view, true);
         setInlineNotice("正在清除 API Key……");
@@ -1154,58 +1644,32 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           setViewBusy(view, false);
         }
       });
-      const test = actionButton(doc, "测试连接", "test", { icon: "check" });
+      const test = actionButton(doc, "测试连接", "test-connection", { icon: "spark" });
       test.addEventListener("click", async () => {
         setViewBusy(view, true);
         setInlineNotice("正在测试连接……");
         try {
-          await callNode("test-connection", { settings: { ...state.settings, apiKey: view.keyDraft } });
-          setInlineNotice("连接成功。草稿配置未写入磁盘。", "success");
+          const response = await callNode("test-connection", { settings: { ...state.settings, apiKey: view.keyDraft } });
+          setInlineNotice(`${response.message}（${response.responseType === "text" ? "模型文本响应" : "JSON 响应"}）`, "success");
         } catch (error) {
           setInlineNotice(error.message, "error");
         } finally {
           setViewBusy(view, false);
         }
       });
-      actions.append(save, clearKey, test);
-      const saveFeedback = element(doc, "div", { className: "ctpo-status ctpo-inline-status", role: "status", "aria-live": "polite" }, [view.inlineNotice.text]);
+      const saveFeedback = element(doc, "span", { className: "ctpo-save-feedback", role: "status", "aria-live": "polite" });
+      saveFeedback.textContent = view.inlineNotice.text;
       saveFeedback.dataset.kind = view.inlineNotice.kind;
       view.saveFeedback = saveFeedback;
-      providerCard.append(actions, saveFeedback);
-      wrapper.append(providerCard);
+      actions.append(save, clearKey, test, saveFeedback);
+      wrapper.append(actions);
 
-      const historyCard = element(doc, "section", {
-        className: "ctpo-card",
-        "aria-labelledby": `${view.id}-history`,
-        "data-ctpo-settings-section": "history",
-      });
-      historyCard.append(element(doc, "h2", { id: `${view.id}-history` }, ["优化历史"]));
-      const historyActions = element(doc, "div", { className: "ctpo-actions" });
-      const clearHistory = actionButton(doc, "清空历史", "clear-history", { icon: "trash", kind: "danger" });
-      clearHistory.addEventListener("click", async () => {
-        if (doc.defaultView?.confirm && !doc.defaultView.confirm("清空所有优化历史？此操作不可恢复。")) return;
-        try {
-          await callNode("clear-history");
-          state.history = [];
-          view.render();
-          setNotice("历史已清空；当前页面的最近一次恢复快照仍保留。", "success");
-        } catch (error) {
-          setNotice(error.message, "error");
-        }
-      });
-      historyActions.append(clearHistory);
-      historyCard.append(historyActions);
-      const historyList = element(doc, "ul", { className: "ctpo-history-list" });
-      renderHistory(view, historyList);
-      historyCard.append(historyList);
-      wrapper.append(historyCard);
-
-      const cleanupCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-cleanup` });
+      const cleanupCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-cleanup`, style: "margin-top: 16px;" });
       cleanupCard.append(
         element(doc, "h2", { id: `${view.id}-cleanup` }, ["卸载前清理数据"]),
         element(doc, "p", { className: "ctpo-hint" }, ["清除 API Key、历史记录和已保存 Provider 配置；包停用不会自动执行此操作。"]),
       );
-      const cleanupButton = actionButton(doc, "清理包数据", "clear-package-data", { icon: "trash", kind: "danger" });
+      const cleanupButton = actionButton(doc, "清理包数据", "clear-history", { icon: "trash", kind: "danger" });
       cleanupButton.addEventListener("click", async () => {
         if (doc.defaultView?.confirm && !doc.defaultView.confirm("清除 API Key、历史和 Provider 配置？建议在卸载前执行。")) return;
         setViewBusy(view, true);
@@ -1243,6 +1707,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       container.append(wrapper);
       setViewBusy(view, view.busy);
     };
+
     state.settingsViews.add(view);
     view.render();
     return () => {
@@ -1272,18 +1737,64 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     state.panelHost.replaceChildren();
     const panelState = state.panel;
     if (!panelState || state.disposed) return;
+
     const panel = element(doc, "section", { className: "ctpo-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "ctpo-panel-title", "data-ctpo-panel": "true" });
-    const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", title: "关闭面板" }, [svgIcon(doc, "close")]);
+    const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", title: "关闭面板 (Esc)" }, [svgIcon(doc, "close")]);
     close.addEventListener("click", closePanel);
+
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePanel();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        const applyBtn = panel.querySelector('[data-ctpo-action="apply-preview"]');
+        if (applyBtn && !applyBtn.disabled) {
+          event.preventDefault();
+          applyBtn.click();
+        }
+      }
+    });
+
+    let tabGroup = null;
+    if (panelState.kind === "preview") {
+      tabGroup = element(doc, "div", { className: "ctpo-tab-group" });
+      const tabs = [
+        { id: "edit", label: "编辑" },
+        { id: "markdown", label: "Markdown" },
+        { id: "diff", label: "对比 (Diff)" },
+      ];
+      for (const t of tabs) {
+        const tabBtn = element(doc, "button", {
+          type: "button",
+          className: "ctpo-tab-btn",
+          "data-active": (panelState.viewTab || "edit") === t.id ? "true" : "false",
+        }, [t.label]);
+        tabBtn.addEventListener("click", () => {
+          panelState.viewTab = t.id;
+          renderPanel();
+        });
+        tabGroup.append(tabBtn);
+      }
+    }
+
+    const titleEl = element(doc, "h2", { id: "ctpo-panel-title" }, [
+      panelState.kind === "clarify" ? "澄清提示词" : "优化结果",
+      panelState.isStreaming ? element(doc, "span", { className: "ctpo-streaming-tag", style: "margin-left: 8px;" }, ["⚡ 生成中..."]) : null,
+    ]);
+
     const header = element(doc, "div", { className: "ctpo-panel-header", "data-ctpo-drag-handle": "true", tabindex: "0", "aria-label": "拖动预览窗口" }, [
-      element(doc, "h2", { id: "ctpo-panel-title" }, [panelState.kind === "clarify" ? "澄清提示词" : "优化结果"]),
+      titleEl,
+      tabGroup || element(doc, "span"),
       close,
     ]);
+
     const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-${panelState.kind}` });
     const actions = element(doc, "div", { className: "ctpo-actions ctpo-panel-actions" });
     panel.append(header, content, actions);
+
     if (panelState.kind === "preview") renderPreviewContent(content, actions, panelState);
     else renderClarifyContent(content, actions, panelState);
+
     state.panelHost.append(panel);
     applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
     installPanelInteractions(panel, panelState);
@@ -1292,18 +1803,47 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   }
 
   function renderPreviewContent(panel, actions, panelState) {
-    panel.append(element(doc, "p", { className: "ctpo-hint" }, [panelState.fromHistory ? "这是历史记录预览，不会自动覆盖当前 Composer。" : "检查并编辑结果后，再决定是否应用。"]));
+    panel.append(element(doc, "p", { className: "ctpo-hint" }, [
+      panelState.fromHistory
+        ? "这是历史记录预览，不会自动覆盖当前 Composer。"
+        : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
+    ]));
+
     panel.append(element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
     panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
+
     const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
-    const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
-    result.addEventListener("input", () => { panelState.result = result.value; });
-    panel.append(resultLabel, result);
+    panel.append(resultLabel);
+
+    const viewTab = panelState.viewTab || "edit";
+    if (viewTab === "markdown") {
+      panel.append(renderSimpleMarkdown(doc, panelState.result));
+    } else if (viewTab === "diff") {
+      panel.append(renderSimpleDiff(doc, panelState.original, panelState.result));
+    } else {
+      const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
+      result.addEventListener("input", () => { panelState.result = result.value; });
+      panel.append(result);
+    }
+
     const contextCurrent = panelState.context
       ? isSameComposerContext(panelState.context, panelState.context.element, currentLocationHref(panelState.context.element), panelState.original)
       : true;
     if (panelState.context && !contextCurrent) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, ["原 Composer 已变化。为避免覆盖新内容，应用按钮已停用。"]));
     if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status" }, [panelState.notice]));
+
+    if (panelState.isStreaming) {
+      const stopBtn = actionButton(doc, "停止生成", "stop-stream", { icon: "cancel", kind: "danger" });
+      stopBtn.addEventListener("click", () => {
+        if (panelState.operationId && panelState.operationMethod) {
+          node?.invoke?.(panelState.operationMethod, { operationId: panelState.operationId, cancel: true }).catch?.(() => {});
+        }
+        panelState.isStreaming = false;
+        renderPanel();
+      });
+      actions.append(stopBtn);
+    }
+
     const apply = actionButton(doc, "应用结果", "apply-preview", { icon: "check", kind: "primary", disabled: Boolean(panelState.context && !contextCurrent) });
     apply.addEventListener("click", async () => {
       let target = panelState.context?.element;
@@ -1330,6 +1870,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         renderPanel();
       }
     });
+
     const copy = actionButton(doc, "复制结果", "copy-preview", { icon: "copy" });
     copy.addEventListener("click", async () => {
       try {
@@ -1342,6 +1883,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         renderPanel();
       }
     });
+
     actions.append(apply, copy, actionButton(doc, "取消", "cancel-preview", { icon: "cancel" }));
     actions.querySelector('[data-ctpo-action="cancel-preview"]').addEventListener("click", closePanel);
   }
@@ -1472,81 +2014,92 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   }
 
+  async function copyText(text) {
+    if (!text) return;
+    const view = doc.defaultView;
+    if (view?.navigator?.clipboard?.writeText) {
+      await view.navigator.clipboard.writeText(text);
+      return;
+    }
+    const temp = element(doc, "textarea", {
+      value: text,
+      style: "position: fixed; left: -9999px; top: -9999px; opacity: 0;",
+    });
+    doc.body.append(temp);
+    temp.select?.();
+    try {
+      doc.execCommand("copy");
+    } finally {
+      temp.remove();
+    }
+  }
+
+  const loadSettings = async () => {
+    if (!node) return;
+    try {
+      const [settingsRes, historyRes] = await Promise.all([
+        callNode("load-settings"),
+        callNode("list-history"),
+      ]);
+      state.settings = { ...RENDERER_DEFAULTS, ...settingsRes.settings };
+      state.history = Array.isArray(historyRes.entries) ? historyRes.entries : [];
+      state.ready = true;
+      refreshSettingsViews();
+      scheduleScan();
+    } catch (error) {
+      setNotice(`加载配置失败：${error.message}`, "error");
+    }
+  };
+
   const onDocumentKeyDown = (event) => {
-    if (event.key !== "Escape") return;
-    if (state.settingsDialog) {
-      event.preventDefault?.();
-      closeSettingsDialog({ restoreFocus: true });
-      return;
-    }
-    if (state.composerMenu) {
-      event.preventDefault?.();
-      closeComposerMenu();
-      return;
-    }
-    if (state.panel) {
-      event.preventDefault?.();
-      closePanel();
+    if (event.key === "Escape") {
+      if (state.composerMenu) {
+        closeComposerMenu();
+        return;
+      }
+      if (state.settingsDialog) {
+        closeSettingsDialog({ restoreFocus: true });
+        return;
+      }
     }
   };
 
   const onDocumentPointerDown = (event) => {
-    const menu = state.composerMenu;
-    if (!menu || menu.element.contains(event.target) || menu.entry.menuButton?.contains?.(event.target)) return;
-    closeComposerMenu();
-  };
-
-  async function copyText(text) {
-    if (doc.defaultView?.navigator?.clipboard?.writeText) {
-      await doc.defaultView.navigator.clipboard.writeText(text);
-      return;
-    }
-    const fallback = element(doc, "textarea", { className: "ctpo-visually-hidden", readonly: true, value: text });
-    doc.body?.append(fallback);
-    fallback.select();
-    const copied = doc.execCommand?.("copy");
-    fallback.remove();
-    if (!copied) throw new Error("无法访问剪贴板，请手动复制结果。");
-  }
-
-  const loadSettings = async () => {
-    if (!node) {
-      setNotice("Node 权限尚未授权。", "error");
-      return;
-    }
-    try {
-      const response = await callNode("load-settings");
-      state.settings = { ...RENDERER_DEFAULTS, ...(response.settings ?? {}) };
-      state.ready = true;
-      refreshSettingsViews();
-      await refreshHistory();
-      scheduleScan();
-    } catch (error) {
-      setNotice(error.message, "error");
+    if (state.composerMenu && !state.composerMenu.element?.contains?.(event.target)) {
+      closeComposerMenu();
     }
   };
 
-  let settingsRegistration = null;
   const closeSettingsDialog = ({ restoreFocus = false } = {}) => {
     const dialog = state.settingsDialog;
+    if (!dialog) return;
     state.settingsDialog = null;
-    dialog?.cleanup?.();
-    dialog?.backdrop?.remove();
-    if (restoreFocus && dialog?.returnFocus?.isConnected) dialog.returnFocus.focus?.();
+    dialog.cleanup?.();
+    dialog.backdrop.remove();
+    if (restoreFocus && dialog.returnFocus?.focus) {
+      dialog.returnFocus.focus();
+    }
   };
 
   const openSettingsDialog = ({ focusHistory = false } = {}) => {
-    closePanel();
-    closeSettingsDialog();
-    const HTMLElementCtor = doc.defaultView?.HTMLElement;
-    const returnFocus = HTMLElementCtor && doc.activeElement instanceof HTMLElementCtor
-      ? doc.activeElement
-      : null;
+    closeComposerMenu();
+    if (state.settingsDialog) {
+      closeSettingsDialog();
+    }
+    const returnFocus = doc.activeElement;
     const backdrop = element(doc, "div", {
       className: "ctpo-settings-dialog-backdrop",
-      "data-ctpo-settings-dialog": "true",
+      role: "presentation",
     });
-    const dialog = element(doc, "section", {
+    backdrop.style.inset = "0";
+    backdrop.style.position = "fixed";
+    backdrop.style.zIndex = "2147483002";
+    backdrop.style.display = "flex";
+    backdrop.style.alignItems = "center";
+    backdrop.style.justifyContent = "center";
+    backdrop.style.background = "rgba(0, 0, 0, 0.4)";
+
+    const dialog = element(doc, "div", {
       className: "ctpo-settings-dialog",
       role: "dialog",
       "aria-modal": "true",
@@ -1615,7 +2168,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     state.disposed = true;
     state.observer?.disconnect?.();
     if (state.scanTimer) clearTimeout(state.scanTimer);
+    if (state.scanRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(state.scanRaf);
     if (state.toastTimer) clearTimeout(state.toastTimer);
+    if (typeof state.chunkUnsubscribe === "function") state.chunkUnsubscribe();
     doc.defaultView?.removeEventListener("resize", reflowPanel);
     doc.defaultView?.removeEventListener("resize", reflowComposerButtons);
     doc.removeEventListener("scroll", reflowPanel, true);

@@ -35,9 +35,65 @@ const CLARIFICATION_INSTRUCTION = `你是提示词澄清助手。你只能根据
 3. 不要替用户臆造答案；用户可以留空、跳过或取消。
 4. readyToGenerate 为 false 时至少提出一个简短、可回答的问题。`;
 
+export const DEFAULT_PROMPT_PRESETS = Object.freeze([
+  {
+    id: "general",
+    name: "通用优化",
+    instruction: DEFAULT_INSTRUCTION,
+  },
+  {
+    id: "code",
+    name: "编程开发",
+    instruction: `你是一名资深代码架构与工程优化专家。请将用户的编程提示词改写得更严谨、具体、可测试。
+要求：
+1. 明确补充输入输出格式、边界条件、错误与异常处理机制、性能要求及单元测试用例。
+2. 保留原技术栈、语言、库、URL 及专有名词，不臆造虚假依赖。
+3. 只输出可直接使用的优化后提示词，不添加多余解释或外层代码围栏。`,
+  },
+  {
+    id: "concise",
+    name: "精准精简",
+    instruction: `你是一名指令精炼专家。请在完整保留用户原始意图与关键约束的前提下，删除所有冗余寒暄、客套和废话。
+要求：
+1. 提炼为要点清晰、逻辑直接的 Bullet-points 或步骤指令。
+2. 保持极致紧凑，突出核心输入、操作与期望输出。
+3. 只输出可直接使用的优化后提示词，不包含解释或问候。`,
+  },
+  {
+    id: "cot",
+    name: "深度推理 (CoT)",
+    instruction: `你是一名提示词工程与思维链架构专家。请将用户的问题或任务重构成具备结构化推理能力的提示词。
+要求：
+1. 引导模型按照“问题理解 -> 假设验证 -> 分步推导 -> 自我反思 -> 最终输出”的思考链条执行。
+2. 明确输出校验标准与推导约束。
+3. 只输出可直接使用的优化后提示词。`,
+  },
+  {
+    id: "translate",
+    name: "中英转译优化",
+    instruction: `You are an expert prompt engineer. Transform the user's input into a world-class, professional English prompt tailored for state-of-the-art LLMs.
+Requirements:
+1. Use concise, unambiguous, and technical English terminology.
+2. Structure the prompt with clear Context, Objective, Constraints, and Output Format.
+3. Output ONLY the optimized prompt directly with no explanations.`,
+  },
+]);
+
+export const DEFAULT_PROFILE = Object.freeze({
+  id: "default-profile",
+  name: "默认配置",
+  protocol: "openaiResponses",
+  baseUrl: "",
+  apiKey: "",
+  apiKeyConfigured: false,
+  model: "",
+  streaming: true,
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   enabled: true,
+  streaming: true,
   mode: "direct",
   protocol: "openaiResponses",
   baseUrl: "",
@@ -46,6 +102,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   model: "",
   instruction: DEFAULT_INSTRUCTION,
   historyLimit: 10,
+  activeProfileId: "default-profile",
+  profiles: [DEFAULT_PROFILE],
+  activePresetId: "general",
+  presets: DEFAULT_PROMPT_PRESETS,
 });
 
 const CONFIG_FILE = "config.json";
@@ -81,36 +141,122 @@ function boundedText(value, maximum, label) {
   return text;
 }
 
-export function normalizeSettings(input = {}, existing = DEFAULT_SETTINGS) {
-  const source = isPlainObject(input) ? input : {};
-  const previous = isPlainObject(existing) ? existing : DEFAULT_SETTINGS;
-  const hasNewKey = typeof source.apiKey === "string" && source.apiKey.trim().length > 0;
-  const clearKey = source.clearApiKey === true;
+function normalizeProfile(input = {}, existing = DEFAULT_PROFILE) {
+  const src = isPlainObject(input) ? input : {};
+  const prev = isPlainObject(existing) ? existing : DEFAULT_PROFILE;
+  const hasNewKey = typeof src.apiKey === "string" && src.apiKey.trim().length > 0;
+  const clearKey = src.clearApiKey === true;
   const apiKey = clearKey
     ? ""
     : hasNewKey
-      ? source.apiKey.trim()
-      : asTrimmedString(previous.apiKey, "");
+      ? src.apiKey.trim()
+      : asTrimmedString(prev.apiKey, "");
+  const protocol = PROTOCOLS.includes(src.protocol)
+    ? src.protocol
+    : PROTOCOLS.includes(prev.protocol)
+      ? prev.protocol
+      : DEFAULT_PROFILE.protocol;
+  const streaming = src.streaming === undefined
+    ? (prev.streaming === undefined ? true : Boolean(prev.streaming))
+    : Boolean(src.streaming);
+
+  return {
+    id: asTrimmedString(src.id, prev.id || `prof-${Date.now()}`),
+    name: asTrimmedString(src.name, prev.name || "未命名配置"),
+    protocol,
+    baseUrl: asTrimmedString(src.baseUrl, asTrimmedString(prev.baseUrl)),
+    apiKey,
+    apiKeyConfigured: apiKey.length > 0,
+    model: asTrimmedString(src.model, asTrimmedString(prev.model)),
+    streaming,
+  };
+}
+
+function normalizePreset(input = {}, existing = null) {
+  const src = isPlainObject(input) ? input : {};
+  const prev = isPlainObject(existing) ? existing : {};
+  return {
+    id: asTrimmedString(src.id, prev.id || `preset-${Date.now()}`),
+    name: asTrimmedString(src.name, prev.name || "自定义预设"),
+    instruction: asTrimmedString(src.instruction, prev.instruction || DEFAULT_INSTRUCTION),
+  };
+}
+
+export function normalizeSettings(input = {}, existing = DEFAULT_SETTINGS) {
+  const source = isPlainObject(input) ? input : {};
+  const previous = isPlainObject(existing) ? existing : DEFAULT_SETTINGS;
   const requestedLimit = Number(source.historyLimit ?? previous.historyLimit);
   const historyLimit = HISTORY_LIMITS.includes(requestedLimit)
     ? requestedLimit
     : DEFAULT_SETTINGS.historyLimit;
 
+  // Normalize profiles
+  let rawProfiles = Array.isArray(source.profiles) ? source.profiles : previous.profiles;
+  if (!Array.isArray(rawProfiles) || !rawProfiles.length) {
+    // Migrate single top-level config into default profile
+    const legacyProfile = {
+      id: "default-profile",
+      name: "默认配置",
+      protocol: source.protocol || previous.protocol || "openaiResponses",
+      baseUrl: source.baseUrl || previous.baseUrl || "",
+      apiKey: source.apiKey !== undefined ? source.apiKey : previous.apiKey || "",
+      model: source.model || previous.model || "",
+      streaming: source.streaming !== undefined ? source.streaming : (previous.streaming ?? true),
+    };
+    rawProfiles = [legacyProfile];
+  }
+
+  const prevProfilesMap = new Map((previous.profiles || []).map((p) => [p.id, p]));
+  const profiles = rawProfiles.map((p) => normalizeProfile(p, prevProfilesMap.get(p.id)));
+  if (!profiles.length) profiles.push(DEFAULT_PROFILE);
+
+  const activeProfileId = asTrimmedString(
+    source.activeProfileId,
+    previous.activeProfileId || profiles[0].id,
+  );
+  const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
+
+  // If top-level fields were directly updated, apply them to active profile
+  if (source.protocol && PROTOCOLS.includes(source.protocol)) activeProfile.protocol = source.protocol;
+  if (source.baseUrl !== undefined) activeProfile.baseUrl = asTrimmedString(source.baseUrl);
+  if (source.model !== undefined) activeProfile.model = asTrimmedString(source.model);
+  if (source.streaming !== undefined) activeProfile.streaming = Boolean(source.streaming);
+  if (typeof source.apiKey === "string" && source.apiKey.trim().length > 0) {
+    activeProfile.apiKey = source.apiKey.trim();
+    activeProfile.apiKeyConfigured = true;
+  } else if (source.clearApiKey === true) {
+    activeProfile.apiKey = "";
+    activeProfile.apiKeyConfigured = false;
+  }
+
+  // Normalize presets
+  let rawPresets = Array.isArray(source.presets) ? source.presets : previous.presets;
+  if (!Array.isArray(rawPresets) || !rawPresets.length) rawPresets = DEFAULT_PROMPT_PRESETS;
+  const presets = rawPresets.map((p) => normalizePreset(p));
+  const activePresetId = asTrimmedString(source.activePresetId, previous.activePresetId || "general");
+  const activePreset = presets.find((p) => p.id === activePresetId) || presets[0];
+
+  const instruction = asTrimmedString(
+    source.instruction,
+    activePreset ? activePreset.instruction : asTrimmedString(previous.instruction, DEFAULT_INSTRUCTION),
+  ) || DEFAULT_INSTRUCTION;
+
   return {
     schemaVersion: SCHEMA_VERSION,
     enabled: source.enabled === undefined ? Boolean(previous.enabled) : Boolean(source.enabled),
+    streaming: activeProfile.streaming,
     mode: MODES.includes(source.mode) ? source.mode : MODES.includes(previous.mode) ? previous.mode : DEFAULT_SETTINGS.mode,
-    protocol: PROTOCOLS.includes(source.protocol)
-      ? source.protocol
-      : PROTOCOLS.includes(previous.protocol)
-        ? previous.protocol
-        : DEFAULT_SETTINGS.protocol,
-    baseUrl: asTrimmedString(source.baseUrl, asTrimmedString(previous.baseUrl)),
-    apiKey,
-    apiKeyConfigured: apiKey.length > 0,
-    model: asTrimmedString(source.model, asTrimmedString(previous.model)),
-    instruction: asTrimmedString(source.instruction, asTrimmedString(previous.instruction, DEFAULT_INSTRUCTION)) || DEFAULT_INSTRUCTION,
+    protocol: activeProfile.protocol,
+    baseUrl: activeProfile.baseUrl,
+    apiKey: activeProfile.apiKey,
+    apiKeyConfigured: activeProfile.apiKeyConfigured,
+    model: activeProfile.model,
+    instruction,
     historyLimit,
+    activeProfileId: activeProfile.id,
+    profiles,
+    activePresetId: activePreset ? activePreset.id : "general",
+    presets,
   };
 }
 
@@ -119,6 +265,7 @@ export function redactSettings(settings) {
   return {
     schemaVersion: SCHEMA_VERSION,
     enabled: normalized.enabled,
+    streaming: normalized.streaming,
     mode: normalized.mode,
     protocol: normalized.protocol,
     baseUrl: normalized.baseUrl,
@@ -127,6 +274,19 @@ export function redactSettings(settings) {
     instruction: normalized.instruction,
     historyLimit: normalized.historyLimit,
     apiKey: "",
+    activeProfileId: normalized.activeProfileId,
+    profiles: normalized.profiles.map((p) => ({
+      id: p.id,
+      name: p.name,
+      protocol: p.protocol,
+      baseUrl: p.baseUrl,
+      model: p.model,
+      streaming: p.streaming,
+      apiKeyConfigured: Boolean(p.apiKey),
+      apiKey: "",
+    })),
+    activePresetId: normalized.activePresetId,
+    presets: normalized.presets,
   };
 }
 
@@ -273,17 +433,18 @@ function clarificationText(original, clarifications = []) {
   return `【原始提示词开始】\n${source}\n【原始提示词结束】\n\n【用户明确填写的澄清回答开始】\n${answerText}\n【用户明确填写的澄清回答结束】`;
 }
 
-export function buildOptimizationPayload({ protocol, model, instruction, text, clarifications = [] }) {
+export function buildOptimizationPayload({ protocol, model, instruction, text, clarifications = [], stream = false }) {
   const normalizedText = clarificationText(text, clarifications);
   const normalizedInstruction = boundedText(asTrimmedString(instruction, DEFAULT_INSTRUCTION), 16_000, "优化指令");
   const normalizedModel = boundedText(asTrimmedString(model), 512, "模型名称");
+  const useStream = Boolean(stream);
   if (protocol === "openaiResponses") {
     return {
       model: normalizedModel,
       instructions: normalizedInstruction,
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: normalizedText }] }],
       max_output_tokens: MODEL_OUTPUT_TOKENS,
-      stream: false,
+      stream: useStream,
     };
   }
   if (protocol === "openaiChatCompletions") {
@@ -294,7 +455,7 @@ export function buildOptimizationPayload({ protocol, model, instruction, text, c
         { role: "user", content: normalizedText },
       ],
       max_tokens: MODEL_OUTPUT_TOKENS,
-      stream: false,
+      stream: useStream,
     };
   }
   if (protocol === "anthropicMessages") {
@@ -303,7 +464,7 @@ export function buildOptimizationPayload({ protocol, model, instruction, text, c
       system: normalizedInstruction,
       messages: [{ role: "user", content: normalizedText }],
       max_tokens: MODEL_OUTPUT_TOKENS,
-      stream: false,
+      stream: useStream,
     };
   }
   const error = new Error("不支持的 API 协议");
@@ -646,6 +807,181 @@ async function requestJson({ fetchImpl, url, protocol, apiKey, packageVersion = 
   }
 }
 
+export function extractStreamDelta(protocol, chunk) {
+  if (!isPlainObject(chunk)) return "";
+  if (chunk.type === "response.completed" && isPlainObject(chunk.response)) {
+    const text = extractResponseText(chunk.response);
+    if (text) return text;
+  }
+  if (protocol === "openaiChatCompletions") {
+    const choice = chunk.choices?.[0];
+    if (typeof choice?.delta?.content === "string") return choice.delta.content;
+    if (Array.isArray(choice?.delta?.content)) return textFromContentArray(choice.delta.content);
+    if (typeof choice?.message?.content === "string") return choice.message.content;
+    if (Array.isArray(choice?.message?.content)) return textFromContentArray(choice.message.content);
+    return "";
+  }
+  if (protocol === "anthropicMessages") {
+    if (chunk.type === "content_block_delta" && typeof chunk.delta?.text === "string") {
+      return chunk.delta.text;
+    }
+    if (typeof chunk.delta?.text === "string") return chunk.delta.text;
+    if (Array.isArray(chunk.content)) return textFromContentArray(chunk.content);
+    return "";
+  }
+  if (protocol === "openaiResponses") {
+    if (typeof chunk.output_text_delta === "string") return chunk.output_text_delta;
+    if (chunk.type === "response.output_text.delta" && typeof chunk.delta === "string") return chunk.delta;
+    if (typeof chunk.output_text === "string") return chunk.output_text;
+    if (typeof chunk.delta?.content === "string") return chunk.delta.content;
+    if (Array.isArray(chunk.output)) return extractResponseText(chunk);
+    return "";
+  }
+  return "";
+}
+
+async function requestStream({
+  fetchImpl,
+  url,
+  protocol,
+  apiKey,
+  packageVersion = UNKNOWN_PACKAGE_VERSION,
+  body,
+  signal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  onChunk,
+}) {
+  if (typeof fetchImpl !== "function") {
+    const error = new Error("当前 Node 运行时不支持 fetch");
+    error.code = "fetch_unavailable";
+    throw error;
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        ...authHeaders(protocol, apiKey, await packageVersion),
+        Accept: "text/event-stream, application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+      redirect: "error",
+    });
+
+    if (!response.ok) {
+      const error = new Error(`API 请求失败（HTTP ${response.status}）`);
+      error.code = response.status === 404 ? "http_404" : "http_error";
+      throw error;
+    }
+
+    const contentType = response.headers?.get?.("content-type") || "";
+    if (isHtmlResponse(contentType)) {
+      const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
+      parseApiResponseBody(raw, contentType); // Throws html_response error to trigger /v1 fallback
+    }
+
+    if (!contentType.includes("text/event-stream") && (contentType.includes("json") || !response.body?.getReader)) {
+      const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
+      const parsed = parseApiResponseBody(raw, contentType);
+      const text = extractResponseText(parsed).trim();
+      if (text && onChunk) onChunk(text, text);
+      return text;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let dataLines = [];
+    let accumulatedText = "";
+
+    const processEvent = () => {
+      const dataStr = dataLines.join("\n").trim();
+      dataLines = [];
+      if (!dataStr || dataStr === "[DONE]") return;
+      try {
+        const parsed = JSON.parse(dataStr);
+        const delta = extractStreamDelta(protocol, parsed);
+        if (delta) {
+          accumulatedText += delta;
+          if (typeof onChunk === "function") {
+            onChunk(delta, accumulatedText);
+          }
+        }
+      } catch {
+        // Tolerate JSON parse error in streaming chunks
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) {
+            processEvent();
+            continue;
+          }
+          if (line.startsWith(":")) continue;
+          if (line.startsWith("data:")) {
+            const dataVal = line.slice(5).replace(/^ /, "");
+            dataLines.push(dataVal);
+          }
+        }
+      }
+      if (buffer.trim().startsWith("data:")) {
+        dataLines.push(buffer.trim().slice(5).replace(/^ /, ""));
+      }
+      processEvent();
+    } finally {
+      reader.releaseLock?.();
+    }
+
+    return accumulatedText.trim();
+  } catch (error) {
+    if (timedOut) {
+      const timeoutError = new Error("请求超时，请稍后重试");
+      timeoutError.code = "timeout";
+      throw timeoutError;
+    }
+    if (signal?.aborted || error?.name === "AbortError") {
+      const cancelled = new Error("请求已取消");
+      cancelled.code = "cancelled";
+      throw cancelled;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
+async function requestStreamWithFiniteV1Fallback(options, candidates) {
+  let lastError;
+  for (let index = 0; index < candidates.length; index += 1) {
+    try {
+      return await requestStream({ ...options, url: candidates[index] });
+    } catch (error) {
+      lastError = error;
+      const canUseV1Fallback = error?.code === "http_404" || error?.code === "html_response";
+      if (!canUseV1Fallback || index === candidates.length - 1) throw error;
+    }
+  }
+  throw lastError;
+}
+
 async function requestWithFiniteV1Fallback(options, candidates) {
   let lastError;
   for (let index = 0; index < candidates.length; index += 1) {
@@ -715,6 +1051,7 @@ function normalizeHistoryEntry(record) {
     result,
     clarifications,
     mode: MODES.includes(record.mode) ? record.mode : "direct",
+    isPinned: Boolean(record.isPinned),
   };
 }
 
@@ -729,9 +1066,14 @@ function normalizeHistoryFile(value) {
 }
 
 function trimHistory(history, limit) {
+  if (!history || !Array.isArray(history.entries)) return defaultHistory();
+  const pinned = history.entries.filter((entry) => entry.isPinned);
+  const unpinned = history.entries.filter((entry) => !entry.isPinned);
+  const keptUnpinned = limit === 0 ? [] : unpinned.slice(0, limit);
+  const combined = [...pinned, ...keptUnpinned].slice(0, 50);
   return {
     schemaVersion: SCHEMA_VERSION,
-    entries: limit === 0 ? [] : history.entries.slice(0, limit),
+    entries: limit === 0 && !pinned.length ? [] : combined,
   };
 }
 
@@ -753,7 +1095,7 @@ function failure(error, secrets = [], operationId) {
   };
 }
 
-export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl = globalThis.fetch, timeoutMs = REQUEST_TIMEOUT_MS, now = () => new Date().toISOString(), signal } = {}) {
+export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl = globalThis.fetch, timeoutMs = REQUEST_TIMEOUT_MS, now = () => new Date().toISOString(), signal, rpc } = {}) {
   if (!dataDirectory) throw new Error("Node dataDirectory 未提供");
   const operations = new Map();
   let disposed = false;
@@ -867,6 +1209,7 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
       model: settings.model,
       instruction: "只回复 OK。",
       text: "连接测试。",
+      stream: false,
     });
     const candidates = endpointCandidates(settings.baseUrl, settings.protocol);
     const response = await requestWithFiniteV1Fallback({
@@ -896,29 +1239,59 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
       throw error;
     }
     const clarifications = Array.isArray(payload.clarifications) ? payload.clarifications : [];
+    const useStreaming = settings.streaming !== false && payload.stream !== false;
     const body = buildOptimizationPayload({
       protocol: settings.protocol,
       model: settings.model,
       instruction: settings.instruction,
       text,
       clarifications,
+      stream: useStreaming,
     });
-    const response = await requestWithFiniteV1Fallback({
-      fetchImpl,
-      protocol: settings.protocol,
-      apiKey: settings.apiKey,
-      packageVersion,
-      body,
-      signal: requestSignal,
-      timeoutMs,
-    }, endpointCandidates(settings.baseUrl, settings.protocol));
-    const result = boundedText(extractResponseText(response).trim(), MAX_OUTPUT_CHARS, "优化结果");
+
+    let rawResult = "";
+    if (useStreaming) {
+      const candidates = endpointCandidates(settings.baseUrl, settings.protocol);
+      rawResult = await requestStreamWithFiniteV1Fallback({
+        fetchImpl,
+        protocol: settings.protocol,
+        apiKey: settings.apiKey,
+        packageVersion,
+        body,
+        signal: requestSignal,
+        timeoutMs,
+        onChunk: (delta, accumulated) => {
+          if (rpc?.emit) {
+            rpc.emit("optimizer-chunk", { operationId, delta, accumulated, isDone: false });
+          }
+          if (typeof payload.onChunk === "function") {
+            payload.onChunk(delta, accumulated);
+          }
+        },
+      }, candidates);
+      if (rpc?.emit) {
+        rpc.emit("optimizer-chunk", { operationId, delta: "", accumulated: rawResult, isDone: true });
+      }
+    } else {
+      const response = await requestWithFiniteV1Fallback({
+        fetchImpl,
+        protocol: settings.protocol,
+        apiKey: settings.apiKey,
+        packageVersion,
+        body,
+        signal: requestSignal,
+        timeoutMs,
+      }, endpointCandidates(settings.baseUrl, settings.protocol));
+      rawResult = extractResponseText(response);
+    }
+
+    const result = boundedText(rawResult.trim(), MAX_OUTPUT_CHARS, "优化结果");
     if (!result) {
       const error = new Error("API 返回了空结果");
       error.code = "empty_result";
       throw error;
     }
-    return ok({ operationId, result });
+    return ok({ operationId, result, streamed: useStreaming });
   });
 
   const clarifyRound = async (payload = {}) => operation(payload, async (requestSignal, operationId) => {
@@ -970,6 +1343,127 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
     return ok({ deleted: history.entries.length !== next.entries.length });
   };
 
+  const togglePinHistory = async (payload = {}) => {
+    const id = asTrimmedString(payload.id);
+    if (!id) {
+      const error = new Error("缺少历史记录 ID");
+      error.code = "invalid_history_id";
+      return failure(error);
+    }
+    const history = await readHistory();
+    let isPinned = false;
+    let found = false;
+    const nextEntries = history.entries.map((entry) => {
+      if (entry.id === id) {
+        found = true;
+        isPinned = !entry.isPinned;
+        return { ...entry, isPinned };
+      }
+      return entry;
+    });
+    if (!found) {
+      const error = new Error("未找到指定历史记录");
+      error.code = "history_not_found";
+      return failure(error);
+    }
+    await atomicWriteJson(historyPath, { schemaVersion: SCHEMA_VERSION, entries: nextEntries });
+    return ok({ id, isPinned });
+  };
+
+  const selectProfile = async (payload = {}) => {
+    const profileId = asTrimmedString(payload.profileId || payload.id);
+    const current = await readConfig();
+    const target = current.profiles.find((p) => p.id === profileId);
+    if (!target) {
+      const error = new Error("未找到指定配置档案");
+      error.code = "profile_not_found";
+      return failure(error);
+    }
+    const next = normalizeSettings({ activeProfileId: profileId }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
+  const saveProfile = async (payload = {}) => {
+    const profileData = isPlainObject(payload.profile) ? payload.profile : payload;
+    const current = await readConfig();
+    const existingIndex = current.profiles.findIndex((p) => p.id === profileData.id);
+    const updatedProfiles = [...current.profiles];
+    if (existingIndex >= 0) {
+      updatedProfiles[existingIndex] = normalizeProfile(profileData, current.profiles[existingIndex]);
+    } else {
+      updatedProfiles.push(normalizeProfile(profileData));
+    }
+    const next = normalizeSettings({ profiles: updatedProfiles }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
+  const deleteProfile = async (payload = {}) => {
+    const profileId = asTrimmedString(payload.profileId || payload.id);
+    const current = await readConfig();
+    if (current.profiles.length <= 1) {
+      const error = new Error("至少保留一个配置档案");
+      error.code = "cannot_delete_last_profile";
+      return failure(error);
+    }
+    const remaining = current.profiles.filter((p) => p.id !== profileId);
+    if (remaining.length === current.profiles.length) {
+      const error = new Error("未找到指定配置档案");
+      error.code = "profile_not_found";
+      return failure(error);
+    }
+    const activeProfileId = current.activeProfileId === profileId ? remaining[0].id : current.activeProfileId;
+    const next = normalizeSettings({ profiles: remaining, activeProfileId }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
+  const selectPreset = async (payload = {}) => {
+    const presetId = asTrimmedString(payload.presetId || payload.id);
+    const current = await readConfig();
+    const target = current.presets.find((p) => p.id === presetId);
+    if (!target) {
+      const error = new Error("未找到指定场景预设");
+      error.code = "preset_not_found";
+      return failure(error);
+    }
+    const next = normalizeSettings({ activePresetId: presetId, instruction: target.instruction }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
+  const savePreset = async (payload = {}) => {
+    const presetData = isPlainObject(payload.preset) ? payload.preset : payload;
+    const current = await readConfig();
+    const existingIndex = current.presets.findIndex((p) => p.id === presetData.id);
+    const updatedPresets = [...current.presets];
+    if (existingIndex >= 0) {
+      updatedPresets[existingIndex] = normalizePreset(presetData, current.presets[existingIndex]);
+    } else {
+      updatedPresets.push(normalizePreset(presetData));
+    }
+    const next = normalizeSettings({ presets: updatedPresets }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
+  const deletePreset = async (payload = {}) => {
+    const presetId = asTrimmedString(payload.presetId || payload.id);
+    const current = await readConfig();
+    if (current.presets.length <= 1) {
+      const error = new Error("至少保留一个场景预设");
+      error.code = "cannot_delete_last_preset";
+      return failure(error);
+    }
+    const remaining = current.presets.filter((p) => p.id !== presetId);
+    const activePresetId = current.activePresetId === presetId ? remaining[0].id : current.activePresetId;
+    const activePreset = remaining.find((p) => p.id === activePresetId) || remaining[0];
+    const next = normalizeSettings({ presets: remaining, activePresetId, instruction: activePreset.instruction }, current);
+    await atomicWriteJson(configPath, next);
+    return ok({ settings: redactSettings(next) });
+  };
+
   const clearHistory = async () => {
     await atomicWriteJson(historyPath, defaultHistory());
     return ok({ cleared: true });
@@ -986,6 +1480,13 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
     "list-history": listHistory,
     "delete-history": deleteHistory,
     "clear-history": clearHistory,
+    "toggle-pin-history": togglePinHistory,
+    "select-profile": selectProfile,
+    "save-profile": saveProfile,
+    "delete-profile": deleteProfile,
+    "select-preset": selectPreset,
+    "save-preset": savePreset,
+    "delete-preset": deletePreset,
   };
 
   const invoke = async (method, payload = {}) => {
@@ -1020,7 +1521,7 @@ export function createNodeRuntime({ dataDirectory, packageDirectory, fetchImpl =
 
 export function activate({ rpc, packageDirectory, dataDirectory, signal } = {}) {
   if (!rpc || typeof rpc.handle !== "function") throw new Error("Node RPC 未提供");
-  const runtime = createNodeRuntime({ packageDirectory, dataDirectory, signal });
+  const runtime = createNodeRuntime({ packageDirectory, dataDirectory, signal, rpc });
   const registrations = [];
   for (const [method, handler] of Object.entries(runtime.handlers)) {
     const registration = rpc.handle(method, handler);
