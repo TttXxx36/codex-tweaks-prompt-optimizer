@@ -645,3 +645,16 @@ test("renderer provides custom modal dialogs for profile creation, renaming and 
   assert.match(css, /\.ctpo-modal-dialog/);
 });
 
+test("renderer provides modern IDE composer menu layout and user-defined preset CRUD", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(source, /ctpo-menu-section-label/);
+  assert.match(source, /ctpo-menu-item/);
+  assert.match(source, /add-preset/);
+  assert.match(source, /rename-preset/);
+  assert.match(source, /delete-preset/);
+  assert.match(css, /\.ctpo-menu-item/);
+  assert.match(css, /\.ctpo-menu-section-label/);
+});
+
+

@@ -432,32 +432,88 @@
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu {
-  background: var(--ctpo-bg);
-  border: 1px solid var(--ctpo-border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 20%);
-  display: grid;
-  min-width: 176px;
+  background: var(--ctpo-card, #1e1e24);
+  color: var(--ctpo-text, #ffffff);
+  border: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.15));
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-width: 260px;
+  padding: 6px;
   overflow: hidden;
   pointer-events: auto;
   position: fixed;
   z-index: 2147483002;
+  animation: ctpo-pop-in 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button {
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-section-label {
+  color: var(--ctpo-muted, #9ca3af);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px 2px;
+  user-select: none;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.1));
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: transparent;
-  border: 0;
+  border: none;
+  border-radius: 6px;
   color: var(--ctpo-text);
   font: inherit;
   font-size: 12px;
-  min-height: 34px;
-  padding: 7px 10px;
+  padding: 6px 8px;
   text-align: left;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 120ms ease, color 120ms ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button:hover,
-[data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu > button:focus-visible {
-  background: var(--ctpo-surface-strong);
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item:hover,
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item:focus-visible {
+  background: var(--ctpo-surface-strong, rgba(255, 255, 255, 0.1));
+  color: var(--ctpo-text);
+  outline: none;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item[data-selected="true"] {
+  color: var(--ctpo-accent, #3b82f6);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--ctpo-accent) 12%, transparent);
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item-icon {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-menu-item-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-host {

@@ -805,14 +805,23 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         { id: "translate", name: "中英转译" },
       ];
 
-    const presetSection = element(doc, "div", { className: "ctpo-menu-presets", style: "border-bottom: 1px solid var(--ctpo-border); padding-bottom: 4px; margin-bottom: 4px;" });
-    for (const p of presets.slice(0, 5)) {
-      const isSelected = state.settings.activePresetId === p.id;
+    // Section 1: 场景预设
+    const presetLabel = element(doc, "div", { className: "ctpo-menu-section-label" }, ["场景预设"]);
+    const presetSection = element(doc, "div", { className: "ctpo-menu-presets" }, [presetLabel]);
+    
+    for (const p of presets) {
+      const isSelected = (state.settings.activePresetId || "general") === p.id;
+      const checkIcon = isSelected ? svgIcon(doc, "check") : element(doc, "span", { style: "display:inline-block;width:13px;" });
       const btn = element(doc, "button", {
         type: "button",
+        className: "ctpo-menu-item",
         role: "menuitem",
-        style: isSelected ? "font-weight: 600; color: var(--ctpo-accent);" : "",
-      }, [isSelected ? "✓ " : "   ", p.name]);
+        "data-selected": isSelected ? "true" : "false",
+        title: `切换为【${p.name}】场景预设`,
+      }, [
+        element(doc, "span", { className: "ctpo-menu-item-icon" }, [checkIcon]),
+        element(doc, "span", { style: "overflow:hidden;text-overflow:ellipsis;" }, [p.name]),
+      ]);
       btn.addEventListener("click", async () => {
         closeComposerMenu();
         try {
@@ -828,25 +837,53 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
     menu.append(presetSection);
 
-    const settings = element(doc, "button", { type: "button", role: "menuitem" }, ["提示词优化设置"]);
-    settings.addEventListener("click", () => openSettings());
-    const history = element(doc, "button", { type: "button", role: "menuitem" }, ["优化历史"]);
-    history.addEventListener("click", () => openSettings({ focusHistory: true }));
-    menu.append(settings, history);
+    // Section 2: 快捷操作
+    const actionLabel = element(doc, "div", { className: "ctpo-menu-section-label" }, ["快捷操作"]);
+    const actionSection = element(doc, "div", { style: "display:flex;flex-direction:column;gap:2px;" }, [actionLabel]);
+
+    const settingsBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-menu-item",
+      role: "menuitem",
+    }, [
+      element(doc, "span", { className: "ctpo-menu-item-icon" }, [svgIcon(doc, "spark")]),
+      element(doc, "span", {}, ["提示词优化设置"]),
+    ]);
+    settingsBtn.addEventListener("click", () => {
+      closeComposerMenu();
+      openSettings();
+    });
+
+    const historyBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-menu-item",
+      role: "menuitem",
+    }, [
+      element(doc, "span", { className: "ctpo-menu-item-icon" }, [svgIcon(doc, "eye")]),
+      element(doc, "span", {}, ["优化历史与收藏"]),
+    ]);
+    historyBtn.addEventListener("click", () => {
+      closeComposerMenu();
+      openSettings({ focusHistory: true });
+    });
+
+    actionSection.append(settingsBtn, historyBtn);
+    menu.append(actionSection);
+
     state.composerButtonHost.append(menu);
 
     const triggerRect = entry.button.getBoundingClientRect?.();
     const menuRect = menu.getBoundingClientRect?.();
     const viewport = viewportSize();
-    const width = Number(menuRect?.width) || 176;
-    const height = Number(menuRect?.height) || 180;
+    const width = Number(menuRect?.width) || 210;
+    const height = Number(menuRect?.height) || 240;
     const left = Math.max(8, Math.min((Number(triggerRect?.right) || 8) - width, viewport.width - width - 8));
     const top = Math.max(8, Math.min((Number(triggerRect?.bottom) || 8) + 4, viewport.height - height - 8));
     menu.style.left = `${Math.round(left)}px`;
     menu.style.top = `${Math.round(top)}px`;
     state.composerMenu = { entry, element: menu };
     entry.menuButton?.setAttribute("aria-expanded", "true");
-    settings.focus?.();
+    settingsBtn.focus?.();
   };
 
   const ensureRestoreButton = (entry, snapshot) => {
@@ -1698,13 +1735,15 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           { id: "cot", name: "深度推理 (CoT)" },
           { id: "translate", name: "中英转译" },
         ];
+      const activePresetId = settings.activePresetId || "general";
+      const currentPreset = presetsList.find((p) => p.id === activePresetId) || presetsList[0];
 
-      const presetSelectLine = element(doc, "div", { className: "ctpo-inline", style: "margin-bottom: 8px;" });
-      const presetSelect = element(doc, "select", { style: "flex: 1;" });
+      const presetSelectLine = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px; margin-bottom: 8px;" });
+      const presetSelect = element(doc, "select", { "aria-label": "选择场景预设", style: "flex: 1; min-width: 140px;" });
       for (const p of presetsList) {
         presetSelect.append(element(doc, "option", { value: p.id, textContent: p.name }));
       }
-      presetSelect.value = settings.activePresetId || "general";
+      presetSelect.value = activePresetId;
       presetSelect.addEventListener("change", async () => {
         try {
           const res = await callNode("select-preset", { presetId: presetSelect.value });
@@ -1715,8 +1754,94 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           setInlineNotice(e.message, "error");
         }
       });
-      presetSelectLine.append(presetSelect);
-      presetCard.append(field(doc, "选择场景预设", presetSelectLine, "可切换编程、精简、思维链推导或通用优化预设模板。"));
+
+      const addPresetBtn = actionButton(doc, "+ 新增预设", "add-preset", { icon: "spark", title: "添加自定义场景预设" });
+      addPresetBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "新增场景预设",
+          message: "请输入新预设的名称（例如：SQL 调优、UI 设计、文案润色 等）：",
+          showInput: true,
+          inputPlaceholder: "例如：代码重构",
+          initialValue: "自定义预设",
+          confirmText: "创建预设",
+          onConfirm: async (name) => {
+            if (!name) return;
+            const newPreset = {
+              id: `preset-${Date.now()}`,
+              name: name,
+              instruction: state.settings.instruction || RENDERER_DEFAULTS.instruction,
+            };
+            setViewBusy(view, true);
+            try {
+              const res = await callNode("save-preset", { preset: newPreset });
+              await callNode("select-preset", { presetId: newPreset.id });
+              state.settings = { ...state.settings, ...res.settings, activePresetId: newPreset.id, instruction: newPreset.instruction };
+              setInlineNotice(`已创建并切换到【${name}】预设`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
+      });
+
+      const renamePresetBtn = actionButton(doc, "重命名", "rename-preset", { icon: "edit", title: "重命名当前选中的场景预设" });
+      renamePresetBtn.addEventListener("click", () => {
+        showModalDialog({
+          title: "重命名场景预设",
+          message: `修改预设【${currentPreset.name}】的名称：`,
+          showInput: true,
+          initialValue: currentPreset.name,
+          confirmText: "保存名称",
+          onConfirm: async (newName) => {
+            if (!newName || newName === currentPreset.name) return;
+            setViewBusy(view, true);
+            try {
+              const updated = { ...currentPreset, name: newName };
+              const res = await callNode("save-preset", { preset: updated });
+              state.settings = { ...state.settings, ...res.settings };
+              setInlineNotice(`预设已重命名为【${newName}】`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
+      });
+
+      const delPresetBtn = actionButton(doc, "删除预设", "delete-preset", { icon: "trash", kind: "danger", title: "删除当前选中的场景预设" });
+      delPresetBtn.addEventListener("click", () => {
+        if (presetsList.length <= 1) {
+          setInlineNotice("至少保留一个场景预设，无法删除。", "error");
+          return;
+        }
+        showModalDialog({
+          title: "删除场景预设",
+          message: `确认删除场景预设【${currentPreset.name}】吗？该操作不可撤销。`,
+          confirmText: "确认删除",
+          isDanger: true,
+          onConfirm: async () => {
+            setViewBusy(view, true);
+            try {
+              const res = await callNode("delete-preset", { presetId: currentPreset.id });
+              state.settings = { ...state.settings, ...res.settings };
+              setInlineNotice(`预设【${currentPreset.name}】已删除。`, "success");
+              view.render();
+            } catch (e) {
+              setInlineNotice(e.message, "error");
+            } finally {
+              setViewBusy(view, false);
+            }
+          },
+        });
+      });
+
+      presetSelectLine.append(presetSelect, addPresetBtn, renamePresetBtn, delPresetBtn);
+      presetCard.append(field(doc, "选择场景预设", presetSelectLine, "可切换或新建编程、精简、思维链推导、转译等自定义优化预设。"));
 
       const instruction = element(doc, "textarea", { id: createSettingsId(view, "instruction"), "aria-label": "默认优化指令" }, [settings.instruction]);
       instruction.addEventListener("input", () => { state.settings.instruction = instruction.value; });
@@ -1739,7 +1864,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           }
           const response = await callNode("save-settings", { settings: { ...state.settings, instruction: instruction.value } });
           state.settings = { ...RENDERER_DEFAULTS, ...response.settings };
-          setInlineNotice("预设与优化指令已保存。", "success");
+          setInlineNotice(`预设【${currentPreset.name}】与优化指令已保存。`, "success");
           view.render();
         } catch (error) {
           setInlineNotice(error.message, "error");
@@ -1748,7 +1873,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         }
       });
 
-      presetCard.append(field(doc, "当前优化指令 (Prompt)", instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
+      presetCard.append(field(doc, `当前预设指令（${currentPreset.name}）`, instruction, "只影响最终生成；多轮澄清始终使用固定 JSON 协议指令。"));
       const presetActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 10px; justify-content: flex-end;" }, [resetInstruction, savePresetBtn]);
       presetCard.append(presetActions);
 

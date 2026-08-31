@@ -49,7 +49,6 @@ export function isElementVisible(element) {
   const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
   if (style && (style.display === "none" || style.visibility === "hidden")) return false;
   if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) {
-    // Test doubles often do not implement layout. A real element with no rect is hidden.
     if (element.ownerDocument?.defaultView) return false;
   }
   return true;
@@ -107,7 +106,48 @@ export function replaceInputText(element, value) {
     return true;
   }
   if (element.isContentEditable === true || element.contentEditable === "true" || element.getAttribute?.("role") === "textbox") {
-    element.textContent = text;
+    const doc = element.ownerDocument;
+    const win = doc?.defaultView || globalThis;
+    element.focus?.();
+
+    let handled = false;
+    try {
+      if (doc && typeof doc.execCommand === "function") {
+        const selection = win.getSelection?.();
+        if (selection) {
+          const range = doc.createRange();
+          range.selectNodeContents(element);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          handled = doc.execCommand("insertText", false, text);
+        }
+      }
+    } catch {
+      handled = false;
+    }
+
+    if (!handled || readInputText(element).trim() !== text.trim()) {
+      if (typeof element.replaceChildren === "function" && typeof doc?.createElement === "function") {
+        element.replaceChildren();
+        const lines = text.split(/\r?\n/);
+        if (lines.length <= 1) {
+          element.append(doc.createTextNode ? doc.createTextNode(text) : text);
+        } else {
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const p = doc.createElement("p");
+            if (line.length > 0) {
+              p.append(doc.createTextNode ? doc.createTextNode(line) : line);
+            } else {
+              p.append(doc.createElement("br"));
+            }
+            element.append(p);
+          }
+        }
+      } else {
+        element.textContent = text;
+      }
+    }
     dispatchInput(element);
     return true;
   }
