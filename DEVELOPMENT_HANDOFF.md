@@ -4,7 +4,7 @@
 >
 > 适用仓库：<https://github.com/TttXxx36/codex-tweaks-prompt-optimizer>
 >
-> 当前公开版本：`v0.1.10`（公开 Release 对应 `c61a168b52e43bcd920727bdbb8ae310030bce55`；开发分支的后续提交以第 5 节和任务记录为准）
+> 当前公开版本：`v0.1.11`（公开 Release 对应 `0881163a7cd378e94e6417e9259f8a577aed1c33`；开发分支的后续提交以第 5 节和任务记录为准）
 
 ## 使用说明与事实边界
 
@@ -28,7 +28,7 @@
 - GitHub Topic：`codex-tweaks-package`
 - 目标：为 Codex Tweaks 宿主提供一个第三方提示词优化功能包，在当前 Composer 旁提供“优化”入口，并支持直接替换、预览后应用、多轮澄清三种工作流。
 - 首发版本：`v0.1.0`
-- 当前公开版本：`v0.1.10`
+- 当前公开版本：`v0.1.11`
 
 本包参考 [Codey](https://github.com/SuperGness/codey) 的可见产品行为，包括优化设置、模型配置、输入框入口和结果替换流程；不复制 Codey 源码，不依赖 Codey 的私有 bridge、OAuth、路由或会话上下文。
 
@@ -89,7 +89,7 @@
 | Provider 与模型链路 | 2026-08-30 | 修复 OpenAI 协议响应解析、端点回退、模型列表展示和嵌套模型选择器。 | `8404412`、`14269ae`、`5897a54`、`a977c0d`；公开版本映射部分需补齐。 |
 | Composer 锚点与生命周期稳定化 | 2026-08-30 | 处理背景信息窗口开关、固定覆盖层、无效坐标、设置扩展启动兼容和历史回归。 | `b850537`、`9bc5e10`、`e278c6a`、`e28d0f9`、`00d5370`；`v0.1.9`。 |
 | 快捷栏与模型按钮回归修复 | 2026-08-31 | 排除命令快捷栏瞬态节点，稳定 Composer 锚点，隔离包 CSS，修复按钮随滚动移动、背景信息窗口受影响和模型选择宽度风险。 | `0e90f4a`、`c61a168`；`v0.1.10`。 |
-| 版本字段统一与粘贴定位取证 | 2026-08-31 | 从 `package.json` 读取 Node 运行时版本，并增加默认关闭的会话级脱敏几何诊断开关。 | `bb17c58`、`112cad7`；`v0.1.11`。 |
+| 版本字段统一与粘贴定位取证 | 2026-08-31 | 从 `package.json` 读取 Node 运行时版本，并增加默认关闭的会话级脱敏几何诊断开关。 | `bb17c58`、`112cad7`、`0881163`；`v0.1.11`。 |
 
 ### 2.2 公开 Release 记录
 
@@ -104,7 +104,8 @@
 | `v0.1.7` | 2026-08-30 10:37:01Z | 具体变更与提交映射为 **【待补充：核对 GitHub Release body/commit】**。 |
 | `v0.1.8` | 2026-08-30 11:17:07Z | 模型下拉和持久化锚点阶段。 |
 | `v0.1.9` | 2026-08-30 15:16:16Z | 设置扩展兼容、Composer 覆盖层和清理阶段。 |
-| `v0.1.10` | 2026-08-31 03:34:13Z | 当前最新公开版本，快捷栏/Composer 回归修复。 |
+| `v0.1.10` | 2026-08-31 03:34:13Z | 上一公开版本，快捷栏/Composer 回归修复。 |
+| `v0.1.11` | 2026-08-31 09:35:20Z | 版本字段统一、临时几何诊断和交接记录同步。 |
 
 公开 Release 列表当前未显示 `v0.1.4`、`v0.1.5` 的正式条目；本地 Git 历史存在对应代码阶段。两者是否曾以草稿、删除 Release 或仅标签形式发布，标记为 **【待补充：检查 GitHub Releases、标签和事件记录】**。
 
@@ -129,6 +130,7 @@
 | `0e90f4a` | 命令快捷栏定位回归修复起点。 |
 | `c61a168` | `v0.1.10` 公开基线，完成三类 Composer 回归修复。 |
 | `bb17c58`、`112cad7` | 版本字段统一、临时几何诊断和交接记录同步，作为 `v0.1.11` 发布候选。 |
+| `0881163` | `v0.1.11` Release 对应的发布提交。 |
 
 ## 3. 详细开发执行记录（分阶段）
 
@@ -305,8 +307,8 @@ type Settings = {
 
 - `npm test`：49/49 通过（Node 16 项、Renderer 33 项）。
 - `npm run check`：通过。
-- 当前 `main` 已包含功能提交 `bb17c586c89008e5515dcecac95c7a7e9623a4af`；状态记录提交之后的最新 HEAD 以 `git rev-parse HEAD` 为准。
-- 远端 `origin/main` 已核对包含功能提交 `bb17c586c89008e5515dcecac95c7a7e9623a4af`；`v0.1.10` 标签仍指向公开基线 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
+- 当前 `main` 已包含 `v0.1.11` 发布提交 `0881163a7cd378e94e6417e9259f8a577aed1c33`；状态记录提交之后的最新 HEAD 以 `git rev-parse HEAD` 为准。
+- 远端 `origin/main` 已核对包含同一发布提交；`v0.1.11` 标签和 Release 指向该提交，`v0.1.10` 标签仍指向公开基线 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
 - Windows 只读实机复核已取得部分证据：Codex Tweaks 管理器显示 `5 / 5` 包已启用且激活，`ct-prompt-optimizer` 为源 `v0.1.10`；当前 Codex Composer 可见两个包控件。三模式交互、设置页、重载/重启和停用清理仍未完成，详见 `memory/task-log/2026-08-31-p0-02-windows-visual-smoke.md`。
 - 实机 ManagedPackages 的当前 `c61a168…` 副本 manifest 为 `0.1.10`，但 `src/node.js` 仍含旧 `PACKAGE_VERSION = "0.1.8"`；P0-01 的本地源码改动尚未重新编译/注入到该副本。
 
@@ -431,11 +433,11 @@ type Settings = {
 | --- | --- |
 | 当前目录 | `D:\Document\Codex\codex-tweaks-prompt-optimizer` |
 | 当前分支 | `main` |
-| `main` HEAD | `c61a168b52e43bcd920727bdbb8ae310030bce55` |
-| `origin/main` | 与本地 `main` 同为 `c61a168b52e43bcd920727bdbb8ae310030bce55` |
-| 当前标签 | `v0.1.10`，指向同一提交。 |
+| `main` HEAD | 已包含 `v0.1.11` 发布提交 `0881163a7cd378e94e6417e9259f8a577aed1c33`；状态记录提交之后以 `git rev-parse HEAD` 为准。 |
+| `origin/main` | 已核对与本地 `main` 同步，并包含 `0881163a7cd378e94e6417e9259f8a577aed1c33`。 |
+| 当前标签 | `v0.1.11`，指向发布提交；`v0.1.10` 保留为上一公开基线。 |
 | GitHub | <https://github.com/TttXxx36/codex-tweaks-prompt-optimizer> |
-| 最新公开 Release | <https://github.com/TttXxx36/codex-tweaks-prompt-optimizer/releases/tag/v0.1.10> |
+| 最新公开 Release | <https://github.com/TttXxx36/codex-tweaks-prompt-optimizer/releases/tag/v0.1.11> |
 | 仓库权限/许可证 | 公开仓库，MIT。 |
 | 公开 Topic | `codex-tweaks-package`。 |
 
@@ -448,10 +450,10 @@ backup/main-before-v0.1.10          08884a8...
 backup/remote-main-before-v0.1.10   453f1ac... [behind 1]
 fix/composer-three-bugs-20260831    87073a6...
 integration-main-20260831           0fe7afa... [ahead 3, behind 4]
-main                                c61a168... (current)
+main                                0881163... (current at release)
 publish-v0.1.9                     094367c...
 release/v0.1.10-integrated-20260831 c61a168...
-remotes/origin/main                 c61a168...
+remotes/origin/main                 0881163... (release)
 remotes/origin/release/v0.1.9       6739efa...
 ```
 
@@ -489,7 +491,7 @@ codex-tweaks-prompt-optimizer/
 git status --short --branch
 ```
 
-上述变更集已同步到 `origin/main`，未创建新的 Release。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
+上述变更集已同步到 `origin/main`，GitHub `v0.1.11` Release 已创建；未跟踪的诊断记录仍须保留并不得擅自纳入。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
 
 ### 5.5 已实现功能清单
 
@@ -797,10 +799,10 @@ gh repo view TttXxx36/codex-tweaks-prompt-optimizer
 
 ## 11. 交接结论
 
-项目已经形成可安装的 Codex Tweaks API v3 提示词优化包，公开 `v0.1.10` Release 和自动化测试构成稳定基线；当前开发分支还包含 P0-01 版本统一、Windows 视觉取证辅助和相关记录。`P0-01` 的实机编译副本尚未重新部署验证；`P0-02` 已取得部分 Windows 只读证据，完整三模式视觉验收仍未完成。
+项目已经形成可安装的 Codex Tweaks API v3 提示词优化包，公开 `v0.1.11` Release 和自动化测试构成当前基线；当前开发分支包含 P0-01 版本统一、Windows 视觉取证辅助和相关记录。`P0-01` 的实机编译副本尚未重新部署验证；`P0-02` 已取得部分 Windows 只读证据，完整三模式视觉验收仍未完成。
 
 最重要的维护边界如下：
 
 > **不要直接修改宿主 Composer DOM，不要把可选宿主 UI 扩展声明为 required，不要把未验证的视觉结果写成已完成，也不要在日志或文档中记录 Key。**
 
-本手册自身为本轮新增文档，随当前代码和测试同步；是否创建新的公开 Release，仍需另行执行版本、审阅和发布流程。
+本手册自身为本轮新增文档，已随当前代码和测试纳入 `v0.1.11` Release；后续版本仍需重新执行版本、审阅和发布流程。
