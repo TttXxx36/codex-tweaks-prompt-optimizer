@@ -300,7 +300,7 @@ function actionButton(doc, label, action, { kind = "default", icon, title, disab
     type: "button",
     className: `ctpo-button ${kind === "primary" ? "ctpo-button-primary" : ""} ${kind === "danger" ? "ctpo-button-danger" : ""}`.trim(),
     "data-ctpo-action": action,
-    title,
+    "data-ctpo-tooltip": title || undefined,
     disabled,
   });
   if (icon) button.append(svgIcon(doc, icon));
@@ -388,12 +388,77 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   toastHost.style.position = "fixed";
   toastHost.style.zIndex = "2147483001";
   const settingsDialogHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-settings-dialog-host" });
-  uiRoot.append(composerButtonHost, panelHost, toastHost, settingsDialogHost);
+  const tooltipElement = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-tooltip", role: "tooltip", "aria-hidden": "true" });
+  uiRoot.append(composerButtonHost, panelHost, toastHost, settingsDialogHost, tooltipElement);
   overlayParent.append(uiRoot);
   state.uiRoot = uiRoot;
   state.composerButtonHost = composerButtonHost;
   state.panelHost = panelHost;
   state.settingsDialogHost = settingsDialogHost;
+  state.tooltipElement = tooltipElement;
+
+  let activeTooltipTarget = null;
+  let tooltipTimer = null;
+
+  const hideCustomTooltip = () => {
+    activeTooltipTarget = null;
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+    tooltipElement.style.opacity = "0";
+    tooltipElement.style.visibility = "hidden";
+    tooltipElement.style.transform = "translateY(2px)";
+  };
+
+  const showCustomTooltip = (target, text) => {
+    if (!target || !text || !target.isConnected || state.disposed) return;
+    tooltipElement.textContent = text;
+    tooltipElement.style.visibility = "hidden";
+    tooltipElement.style.display = "block";
+    tooltipElement.style.opacity = "0";
+
+    const targetRect = target.getBoundingClientRect?.();
+    const tooltipRect = tooltipElement.getBoundingClientRect?.();
+    const viewport = viewportSize();
+
+    if (!targetRect || !tooltipRect) return;
+
+    const tooltipWidth = Number(tooltipRect.width) || 120;
+    const tooltipHeight = Number(tooltipRect.height) || 26;
+
+    let left = targetRect.left + (targetRect.width - tooltipWidth) / 2;
+    left = Math.max(8, Math.min(left, viewport.width - tooltipWidth - 8));
+
+    let top = targetRect.bottom + 6;
+    if (top + tooltipHeight > viewport.height - 8) {
+      top = Math.max(8, targetRect.top - tooltipHeight - 6);
+    }
+
+    tooltipElement.style.left = `${Math.round(left)}px`;
+    tooltipElement.style.top = `${Math.round(top)}px`;
+    tooltipElement.style.visibility = "visible";
+    tooltipElement.style.opacity = "1";
+    tooltipElement.style.transform = "translateY(0)";
+  };
+
+  const onDocumentPointerOver = (e) => {
+    const target = e.target?.closest?.("[data-ctpo-tooltip]");
+    if (!target) return;
+    const text = target.getAttribute("data-ctpo-tooltip");
+    if (!text) return;
+    activeTooltipTarget = target;
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+    tooltipTimer = setTimeout(() => {
+      if (activeTooltipTarget === target && target.isConnected) {
+        showCustomTooltip(target, text);
+      }
+    }, 180);
+  };
+
+  const onDocumentPointerOut = (e) => {
+    const target = e.target?.closest?.("[data-ctpo-tooltip]");
+    if (target && target === activeTooltipTarget) {
+      hideCustomTooltip();
+    }
+  };
 
   let settingsRegistration = null;
 
@@ -773,7 +838,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     entry.button.dataset.busy = busy ? "true" : "false";
     entry.button.setAttribute("aria-busy", busy ? "true" : "false");
     entry.button.replaceChildren(svgIcon(doc, busy ? "cancel" : "spark"), doc.createTextNode(busy ? "取消" : "优化"));
-    entry.button.title = busy ? "取消当前优化请求" : "优化当前提示词";
+    entry.button.removeAttribute("title");
+    entry.button.setAttribute("data-ctpo-tooltip", busy ? "取消当前优化请求" : "优化当前提示词");
   };
 
   const closeComposerMenu = () => {
@@ -817,7 +883,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         className: "ctpo-menu-item",
         role: "menuitem",
         "data-selected": isSelected ? "true" : "false",
-        title: `切换为【${p.name}】场景预设`,
+        "data-ctpo-tooltip": `切换为【${p.name}】场景预设`,
       }, [
         element(doc, "span", { className: "ctpo-menu-item-icon" }, [checkIcon]),
         element(doc, "span", { style: "overflow:hidden;text-overflow:ellipsis;" }, [p.name]),
@@ -882,9 +948,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (left + width > viewport.width - 8) {
       left = Math.max(8, (Number(triggerRect?.right) || width + 8) - width);
     }
-    let top = (Number(triggerRect?.top) || 0) - height - 6;
+    let top = (Number(triggerRect?.top) || 0) - height - 12;
     if (top < 8) {
-      top = Math.min((Number(triggerRect?.bottom) || 0) + 6, viewport.height - height - 8);
+      top = Math.min((Number(triggerRect?.bottom) || 0) + 12, viewport.height - height - 8);
     }
     menu.style.left = `${Math.round(left)}px`;
     menu.style.top = `${Math.round(top)}px`;
@@ -1134,7 +1200,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       type: "button",
       className: BUTTON_CLASS,
       "aria-label": "优化当前提示词",
-      title: "优化当前提示词",
+      "data-ctpo-tooltip": "优化当前提示词",
       "data-codex-tweaks-prompt-optimizer": "button",
       hidden: true,
     }, [svgIcon(doc, "spark"), "优化"]);
@@ -1144,7 +1210,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "aria-label": "打开提示词优化菜单",
       "aria-haspopup": "menu",
       "aria-expanded": "false",
-      title: "提示词优化菜单",
+      "data-ctpo-tooltip": "提示词优化菜单",
       hidden: true,
     }, [svgIcon(doc, "chevron")]);
     const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false, lastPos: null };
@@ -2238,7 +2304,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (!panelState || state.disposed) return;
 
     const panel = element(doc, "section", { className: "ctpo-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "ctpo-panel-title", "data-ctpo-panel": "true" });
-    const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", title: "关闭面板 (Esc)" }, [svgIcon(doc, "close")]);
+    const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", "data-ctpo-tooltip": "关闭面板 (Esc)" }, [svgIcon(doc, "close")]);
     close.addEventListener("click", closePanel);
 
     panel.addEventListener("keydown", (event) => {
@@ -2568,6 +2634,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const onDocumentPointerDown = (event) => {
+    hideCustomTooltip();
     if (state.composerMenu && !state.composerMenu.element?.contains?.(event.target)) {
       closeComposerMenu();
     }
@@ -2615,7 +2682,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       type: "button",
       className: "ctpo-panel-close",
       "aria-label": "关闭提示词优化设置",
-      title: "关闭",
+      "data-ctpo-tooltip": "关闭",
     }, [svgIcon(doc, "close")]);
     close.addEventListener("click", () => closeSettingsDialog({ restoreFocus: true }));
     header.append(close);
@@ -2680,6 +2747,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     doc.removeEventListener("scroll", reflowComposerButtons, true);
     doc.removeEventListener("keydown", onDocumentKeyDown);
     doc.removeEventListener("pointerdown", onDocumentPointerDown, true);
+    doc.removeEventListener("pointerover", onDocumentPointerOver, true);
+    doc.removeEventListener("pointerout", onDocumentPointerOut, true);
+    hideCustomTooltip();
     state.toastTimer = null;
     for (const entry of [...state.attached.values()]) detachComposer(entry);
     for (const operation of state.activeOperations.values()) {
@@ -2702,6 +2772,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   doc.addEventListener("scroll", reflowComposerButtons, true);
   doc.addEventListener("keydown", onDocumentKeyDown);
   doc.addEventListener("pointerdown", onDocumentPointerDown, true);
+  doc.addEventListener("pointerover", onDocumentPointerOver, true);
+  doc.addEventListener("pointerout", onDocumentPointerOut, true);
   state.observer = new MutationObserver((records) => {
     if (records.some(({ target }) => !uiRoot.contains(target))) scheduleScan();
   });

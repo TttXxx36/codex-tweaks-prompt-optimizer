@@ -533,7 +533,7 @@ test("preview geometry prefers the space above Composer, then avoids overlap and
 
 test("settings stylesheet centers the pane and follows Codex light and dark host classes", async () => {
   const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
-  assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*760px\);)(?=[^}]*margin:\s*0 auto;)/s);
+  assert.match(css, /\.ctpo-settings\s*\{(?=[^}]*width:\s*min\(100%,\s*912px\);)(?=[^}]*margin:\s*0 auto;)/s);
   assert.match(css, /:root:not\(\.electron-light\)\s+\[data-codex-tweaks-ct-prompt-optimizer\]/);
   assert.match(css, /\.ctpo-field\s*\{[^}]*grid-template-columns:\s*112px minmax\(0, 1fr\);/s);
   assert.match(css, /\.ctpo-panel-host\s*\{(?=[^}]*pointer-events:\s*none;)(?=[^}]*position:\s*fixed;)/s);

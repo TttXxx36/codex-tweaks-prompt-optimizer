@@ -180,7 +180,7 @@
   margin: 0 auto;
   min-height: 100%;
   padding: 28px 24px 56px;
-  width: min(100%, 760px);
+  width: min(100%, 912px);
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-pane-header {
@@ -433,7 +433,7 @@
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-composer-menu {
-  background: var(--ctpo-card, #1e1e24);
+  background: #111111;
   color: var(--ctpo-text, #ffffff);
   border: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.15));
   border-radius: 10px;
@@ -553,9 +553,9 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   max-height: min(820px, calc(100vh - 48px));
-  max-width: min(840px, calc(100vw - 48px));
+  max-width: min(1008px, calc(100vw - 48px));
   overflow: hidden;
-  width: 800px;
+  width: 960px;
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-settings-dialog-header {
@@ -771,7 +771,7 @@
   bottom: calc(100% + 6px);
   left: 10px;
   right: 10px;
-  background: var(--ctpo-card, #1e1e24);
+  background: #111111;
   color: var(--ctpo-text, #ffffff);
   border: 1px solid var(--ctpo-border, rgba(255, 255, 255, 0.2));
   border-radius: 8px;
@@ -815,6 +815,40 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+
+/* Custom Tooltip */
+[data-codex-tweaks-ct-prompt-optimizer] .ctpo-tooltip,
+.ctpo-tooltip {
+  position: fixed;
+  z-index: 2147483010;
+  background: #111111;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-family: inherit;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  box-sizing: border-box;
+}
+
+:root.electron-light [data-codex-tweaks-ct-prompt-optimizer] .ctpo-tooltip,
+.electron-light [data-codex-tweaks-ct-prompt-optimizer] .ctpo-tooltip,
+[data-codex-tweaks-ct-prompt-optimizer] .electron-light .ctpo-tooltip,
+.electron-light .ctpo-tooltip {
+  background: #ffffff;
+  color: #111827;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
 }
 
 [data-codex-tweaks-ct-prompt-optimizer] .ctpo-history-item > .ctpo-actions {
