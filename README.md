@@ -2,7 +2,7 @@
 
 为 Codex Composer 提供提示词优化功能的 Codex Tweaks 第三方功能包。
 
-当前包 ID 为 `ct-prompt-optimizer`，当前发布版本为 `v0.1.10`。包只实现 Codex Tweaks API v3 公开生命周期，不复制 Codey 源码，也不依赖 Codey 的私有 bridge。
+当前包 ID 为 `ct-prompt-optimizer`，当前发布版本为 `v0.1.11`。包只实现 Codex Tweaks API v3 公开生命周期，不复制 Codey 源码，也不依赖 Codey 的私有 bridge。
 
 ## 功能
 
