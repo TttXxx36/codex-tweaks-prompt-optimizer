@@ -14,7 +14,7 @@
 2. 宿主提供有效 `packageDirectory` 时，Provider User-Agent 仍使用该包 `package.json` 的版本。
 3. 宿主未提供包目录或清单读取失败时，Node 运行时仍可激活；版本标识仅降级为 `unknown`。
 4. 自动化测试、语法检查和 Git 空白检查通过。
-5. 不推送、不创建 Release，不修改未跟踪的模型选择器诊断记录。
+5. 不创建 Release，不修改未跟踪的模型选择器诊断记录；后续按用户明确请求推送修复提交。
 
 ## 根因诊断
 
@@ -57,7 +57,7 @@ P0-01 为消除硬编码版本而引入的 `createRequire(import.meta.url)` 假�
 - `git diff --check`：通过。
 - 当前工作区仍保留未跟踪的 `memory/task-log/2026-08-31-model-selector-width-diagnosis.md`，未读取修改内容、未纳入本任务。
 - 尚未重新编译/安装到 Windows ManagedPackages；尚未证明宿主实机已恢复，因此实机状态保持 **【待部署验证】**。
-- 公开 `v0.1.11` 仍指向修复前提交；本地修复尚未提交、推送或发布。
+- 修复提交 `2626918ce9ad9b2fd9c1e576a9b6af58ca25d964` 已推送到 `origin/main`，远端 ref 已核对为同一 SHA；公开 `v0.1.11` 仍指向修复前提交，尚未创建新的 Release。
 
 ## 后续
 

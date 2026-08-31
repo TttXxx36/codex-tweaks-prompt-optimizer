@@ -311,7 +311,7 @@ type Settings = {
 - 远端 `origin/main` 已核对包含同一发布提交；`v0.1.11` 标签和 Release 指向该提交，`v0.1.10` 标签仍指向公开基线 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
 - Windows 只读实机复核已取得部分证据：Codex Tweaks 管理器显示 `5 / 5` 包已启用且激活，`ct-prompt-optimizer` 为源 `v0.1.10`；当前 Codex Composer 可见两个包控件。三模式交互、设置页、重载/重启和停用清理仍未完成，详见 `memory/task-log/2026-08-31-p0-02-windows-visual-smoke.md`。
 - 实机 ManagedPackages 的当前 `c61a168…` 副本 manifest 为 `0.1.10`，但 `src/node.js` 仍含旧 `PACKAGE_VERSION = "0.1.8"`；P0-01 的本地源码改动尚未重新编译/注入到该副本。
-- 用户随后在公开 `v0.1.11` 上报告 Node 入口启动失败：`The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received undefined`。当前本地工作树已定位为 `createRequire(import.meta.url)` 的宿主加载兼容回归并完成修复，但尚未部署到 Windows ManagedPackages。
+- 用户随后在公开 `v0.1.11` 上报告 Node 入口启动失败：`The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received undefined`。修复提交 `2626918ce9ad9b2fd9c1e576a9b6af58ca25d964` 已推送到 `origin/main`，但尚未部署到 Windows ManagedPackages。
 
 ## 4. Bug 追踪与修复记录
 
@@ -434,7 +434,7 @@ type Settings = {
 4. **没有 CI/打包流水线**：当前发布依赖人工命令和人工检查，容易漏测或把未验证代码发布出去。
 5. **宿主背景信息窗口不是包所有**：本包只识别其状态并避让；若宿主组件本身不渲染，应单独检查宿主实现，不能在本包中复制宿主组件。
 6. **新增用户报告：粘贴后按钮组跳到 Composer 左侧**：目前已用合成 DOM 替换探针确认 `previousAnchor` 缺少当前 Composer 归属校验，真实宿主触发路径和坐标系影响仍待补采 geometry trace；暂不把该合成结果写成已修复。
-7. **公开 v0.1.11 的 Node 启动回归**：该版本仍含 `createRequire(import.meta.url)` 版本读取实现；当前工作树已改用宿主 `packageDirectory` 并通过 51/51 自动化测试，但尚未提交、部署或发布补丁版本。
+7. **公开 v0.1.11 的 Node 启动回归**：该版本仍含 `createRequire(import.meta.url)` 版本读取实现；修复已通过 51/51 自动化测试并推送到 `origin/main`，但尚未部署或发布补丁版本。
 
 ## 5. 当前代码库状态
 
@@ -496,13 +496,13 @@ codex-tweaks-prompt-optimizer/
 
 ### 5.4 未提交修改
 
-前一轮手册、P0 任务记录、诊断开关源码/测试和状态更新组成的变更集已由功能提交 `bb17c58` 推送到 `origin/main`；本轮 Node 宿主启动修复目前仍在工作树中，具体当前状态仍以命令输出为准：
+前一轮手册、P0 任务记录、诊断开关源码/测试和状态更新组成的变更集已由功能提交 `bb17c58` 推送到 `origin/main`；本轮 Node 宿主启动修复已由提交 `2626918ce9ad9b2fd9c1e576a9b6af58ca25d964` 推送，具体当前状态仍以命令输出为准：
 
 ```powershell
 git status --short --branch
 ```
 
-前一轮变更集已同步到 `origin/main`，GitHub `v0.1.11` Release 已创建；本轮修复尚未提交、推送或发布。未跟踪的模型选择器诊断记录仍须保留并不得擅自纳入。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
+前一轮变更集已同步到 `origin/main`，GitHub `v0.1.11` Release 已创建；本轮修复已提交并推送，但尚未创建新的 Release。未跟踪的模型选择器诊断记录仍须保留并不得擅自纳入。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
 
 ### 5.5 已实现功能清单
 
