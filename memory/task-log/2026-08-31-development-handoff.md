@@ -29,3 +29,10 @@
 
 - Windows Codex 三模式视觉 smoke、宿主设置扩展能力矩阵和 macOS 视觉验收仍需实际环境补录。
 - `v0.1.4`、`v0.1.5`、`v0.1.7` 的公开 Release/提交映射仍需根据 GitHub 历史补齐。
+
+## Follow-up: user-confirmed GitHub sync
+
+- 用户确认选择 A，将当前 P0-01/P0-02 相关源码、测试、交接手册、经验和任务记录作为一个变更集同步到 `origin/main`。
+- 本地提交：`bb17c586c89008e5515dcecac95c7a7e9623a4af`，提交信息为 `chore: sync version diagnostics and handoff`。
+- 推送结果：`git push origin main` 成功，GitHub `main` 从 `c61a168` 快进到 `bb17c58`；随后只读 `ls-remote` 核对远端指针与该提交一致。
+- 未创建或修改公开 Release；`v0.1.10` 仍为公开基线。推送使用一次性 GitHub CLI 凭据助手参数，没有把令牌写入仓库或文档。

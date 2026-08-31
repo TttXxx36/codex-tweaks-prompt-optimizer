@@ -16,7 +16,7 @@
 
 无法从上述证据确认的内容使用 **【待补充：说明缺失信息】** 标记，不以推测替代事实。尤其要注意：自动化测试通过不等于 Windows Codex 实机视觉 smoke 已完成；当前 Windows 和 macOS 的完整视觉验收状态见[当前代码库状态](#5-当前代码库状态)和[已知风险](#已知风险)。
 
-本手册初版生成时只新增文档和本地任务记录，未执行 GitHub 推送或 Release。后续 P0-01、P0-02 诊断开关及相关测试的发布状态，以当前 Git 历史和任务记录为准；本轮不创建新的 Release。
+本手册初版生成时只新增文档和本地任务记录，未执行 GitHub 推送或 Release。之后用户确认将 P0-01、P0-02 诊断开关及相关测试作为一个变更集推送到 `origin/main`；本轮不创建新的 Release。
 
 ## 1. 项目概述
 
@@ -303,8 +303,8 @@ type Settings = {
 
 - `npm test`：49/49 通过（Node 16 项、Renderer 33 项）。
 - `npm run check`：通过。
-- 当前 `main` 与远端 `origin/main` 均指向 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
-- `v0.1.10` 标签指向同一提交。
+- 当前 `main` 已包含功能提交 `bb17c586c89008e5515dcecac95c7a7e9623a4af`；状态记录提交之后的最新 HEAD 以 `git rev-parse HEAD` 为准。
+- 远端 `origin/main` 已核对包含功能提交 `bb17c586c89008e5515dcecac95c7a7e9623a4af`；`v0.1.10` 标签仍指向公开基线 `c61a168b52e43bcd920727bdbb8ae310030bce55`。
 - Windows 只读实机复核已取得部分证据：Codex Tweaks 管理器显示 `5 / 5` 包已启用且激活，`ct-prompt-optimizer` 为源 `v0.1.10`；当前 Codex Composer 可见两个包控件。三模式交互、设置页、重载/重启和停用清理仍未完成，详见 `memory/task-log/2026-08-31-p0-02-windows-visual-smoke.md`。
 - 实机 ManagedPackages 的当前 `c61a168…` 副本 manifest 为 `0.1.10`，但 `src/node.js` 仍含旧 `PACKAGE_VERSION = "0.1.8"`；P0-01 的本地源码改动尚未重新编译/注入到该副本。
 
@@ -402,7 +402,7 @@ type Settings = {
 
 - **范围**：快捷栏滚动、背景信息窗口受影响、模型选择宽度风险。
 - **修复摘要**：稳定 Composer 锚点、排除瞬态浮层、固定包覆盖层、根作用域 CSS、清理 host mutation。
-- **版本证据**：`main`/`v0.1.10` 的 `c61a168`。
+- **版本证据**：公开基线 `v0.1.10` 的 `c61a168`；本轮功能提交为 `bb17c58`。
 - **验证**：49 个自动化测试、语法检查和 Git 空白检查通过；宿主视觉验收仍不能由自动化测试代替。
 
 ### BUG-20260831-12：粘贴后优化按钮组跳到 Composer 左侧（诊断阶段）
@@ -481,13 +481,13 @@ codex-tweaks-prompt-optimizer/
 
 ### 5.4 未提交修改
 
-本手册生成后，`DEVELOPMENT_HANDOFF.md`、P0 任务记录、诊断开关源码/测试和状态更新组成一个待审核变更集，具体以命令输出为准：
+本手册生成后，`DEVELOPMENT_HANDOFF.md`、P0 任务记录、诊断开关源码/测试和状态更新组成一个变更集，已由功能提交 `bb17c58` 推送到 `origin/main`；具体当前状态仍以命令输出为准：
 
 ```powershell
 git status --short --branch
 ```
 
-当前只准备同步上述变更集，不创建新的 Release。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
+上述变更集已同步到 `origin/main`，未创建新的 Release。若 `git status` 显示其他不属于本任务的文件，必须保留并先确认来源。
 
 ### 5.5 已实现功能清单
 
