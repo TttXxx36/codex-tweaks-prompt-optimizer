@@ -2026,10 +2026,33 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       let mountedHoverCard = null;
 
       const onPointerEnter = () => {
-        if (hoverTimer) clearTimeout(hoverTimer);
+        if (hoverTimer) {
+          clearTimeout(hoverTimer);
+          hoverTimer = null;
+        }
+        for (const card of preview.querySelectorAll?.(".ctpo-history-hover-card") ?? []) {
+          card.remove();
+        }
+        if (mountedHoverCard) {
+          mountedHoverCard.remove();
+          mountedHoverCard = null;
+        }
+
         hoverTimer = setTimeout(() => {
           hoverTimer = null;
-          if (!preview.isConnected) return;
+          let isConnected = preview.isConnected !== false;
+          let curr = preview;
+          while (curr && isConnected) {
+            if (curr.isConnected === false) { isConnected = false; break; }
+            if (!curr.parentElement) {
+              if (curr.tagName === "UL" || curr.tagName === "LI") {
+                isConnected = false;
+              }
+              break;
+            }
+            curr = curr.parentElement;
+          }
+          if (!isConnected || !preview.parentElement) return;
           mountedHoverCard = element(doc, "div", { className: "ctpo-history-hover-card" }, [
             element(doc, "div", { className: "ctpo-history-hover-title" }, ["📝 原始提示词："]),
             element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.original]),
@@ -2044,6 +2067,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         if (hoverTimer) {
           clearTimeout(hoverTimer);
           hoverTimer = null;
+        }
+        for (const card of preview.querySelectorAll?.(".ctpo-history-hover-card") ?? []) {
+          card.remove();
         }
         if (mountedHoverCard) {
           mountedHoverCard.remove();
