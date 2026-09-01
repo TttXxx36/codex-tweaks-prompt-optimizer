@@ -81,12 +81,26 @@ export async function atomicWriteJson(filePath, value) {
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   try {
     await fs.writeFile(temporaryPath, serialized, { encoding: "utf8", flag: "wx" });
-    try {
-      await fs.rename(temporaryPath, filePath);
-    } catch (error) {
-      if (!["EEXIST", "EPERM", "ENOTEMPTY"].includes(error?.code)) throw error;
-      await fs.rm(filePath, { force: true });
-      await fs.rename(temporaryPath, filePath);
+    let retries = 10;
+    while (retries > 0) {
+      try {
+        await fs.rename(temporaryPath, filePath);
+        break;
+      } catch (error) {
+        if (!["EEXIST", "EPERM", "ENOTEMPTY", "EBUSY", "EACCES"].includes(error?.code)) throw error;
+        retries--;
+        if (retries === 0) {
+          try {
+            await fs.rm(filePath, { force: true });
+            await fs.rename(temporaryPath, filePath);
+          } catch {
+            // fallback: direct copy if rename fails under severe locking
+            await fs.writeFile(filePath, serialized, { encoding: "utf8" });
+          }
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
     }
   } finally {
     await fs.rm(temporaryPath, { force: true }).catch(() => {});
@@ -162,6 +176,8 @@ export class StorageManager {
     this.configPath = dataDirectory ? path.join(dataDirectory, CONFIG_FILE) : null;
     this.historyPath = dataDirectory ? path.join(dataDirectory, HISTORY_FILE) : null;
     this.cachedPackageVersion = null;
+    this.cachedSettings = null;
+    this.cachedHistory = null;
   }
 
   async getPackageVersion() {
@@ -171,13 +187,19 @@ export class StorageManager {
   }
 
   async readSettings() {
-    if (!this.configPath) return { ...DEFAULT_SETTINGS };
+    if (this.cachedSettings) return this.cachedSettings;
+    if (!this.configPath) {
+      this.cachedSettings = { ...DEFAULT_SETTINGS };
+      return this.cachedSettings;
+    }
     const raw = await readJsonFile(this.configPath, DEFAULT_SETTINGS);
-    return normalizeSettings(raw);
+    this.cachedSettings = normalizeSettings(raw);
+    return this.cachedSettings;
   }
 
   async writeSettings(settings) {
     const normalized = normalizeSettings(settings);
+    this.cachedSettings = normalized;
     if (this.configPath) {
       await atomicWriteJson(this.configPath, normalized);
     }
@@ -185,13 +207,19 @@ export class StorageManager {
   }
 
   async readHistory() {
-    if (!this.historyPath) return defaultHistory();
+    if (this.cachedHistory) return this.cachedHistory;
+    if (!this.historyPath) {
+      this.cachedHistory = defaultHistory();
+      return this.cachedHistory;
+    }
     const raw = await readJsonFile(this.historyPath, defaultHistory());
-    return normalizeHistoryFile(raw);
+    this.cachedHistory = normalizeHistoryFile(raw);
+    return this.cachedHistory;
   }
 
   async writeHistory(history) {
     const normalized = normalizeHistoryFile(history);
+    this.cachedHistory = normalized;
     if (this.historyPath) {
       await atomicWriteJson(this.historyPath, normalized);
     }
@@ -240,5 +268,11 @@ export class StorageManager {
       profiles: current.profiles.map((p) => (p.id === current.activeProfileId ? { ...p, apiKey: "" } : p)),
     };
     return await this.writeSettings(updated);
+  }
+
+  invalidateCache() {
+    this.cachedSettings = null;
+    this.cachedHistory = null;
+    this.cachedPackageVersion = null;
   }
 }

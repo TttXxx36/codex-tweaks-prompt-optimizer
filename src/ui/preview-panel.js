@@ -12,6 +12,42 @@ export function createPanelLayout(layout = {}) {
   };
 }
 
+export class StreamBatchScheduler {
+  constructor(onFlush) {
+    this.onFlush = onFlush;
+    this.pendingAccumulated = "";
+    this.timer = null;
+    this.isStreaming = false;
+  }
+
+  push(accumulated, isDone) {
+    this.pendingAccumulated = accumulated;
+    this.isStreaming = !isDone;
+    if (isDone) {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      this.onFlush(this.pendingAccumulated, true);
+      return;
+    }
+    if (!this.timer) {
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.onFlush(this.pendingAccumulated, false);
+      }, 33);
+    }
+  }
+
+  cancel() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.isStreaming = false;
+  }
+}
+
 export class PreviewPanelController {
   constructor({
     doc,
@@ -38,6 +74,20 @@ export class PreviewPanelController {
     this.panelHost.style.position = "fixed";
     this.panelHost.style.zIndex = "2147483000";
     this.uiRoot.append(this.panelHost);
+
+    this.streamScheduler = new StreamBatchScheduler((accumulated, isDone) => {
+      if (!this.panelState || this.panelState.kind !== "preview") return;
+      this.panelState.result = accumulated;
+      if (isDone) {
+        this.panelState.isStreaming = false;
+      }
+      const resultTextarea = this.panelHost.querySelector("#ctpo-preview-result");
+      if (resultTextarea && resultTextarea.value !== accumulated) {
+        resultTextarea.value = accumulated;
+      } else {
+        this.render();
+      }
+    });
 
     this.panelState = null;
     this.dragCleanup = null;
@@ -111,19 +161,11 @@ export class PreviewPanelController {
 
   updateStreamChunk({ delta, accumulated, isDone }) {
     if (!this.panelState || this.panelState.kind !== "preview") return;
-    this.panelState.result = accumulated;
-    if (isDone) {
-      this.panelState.isStreaming = false;
-    }
-    const resultTextarea = this.panelHost.querySelector("#ctpo-preview-result");
-    if (resultTextarea && resultTextarea.value !== accumulated) {
-      resultTextarea.value = accumulated;
-    } else {
-      this.render();
-    }
+    this.streamScheduler.push(accumulated, Boolean(isDone));
   }
 
   close() {
+    this.streamScheduler.cancel();
     this.clearInteractions();
     this.panelHost.replaceChildren();
     this.panelState = null;

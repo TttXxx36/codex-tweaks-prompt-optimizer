@@ -213,6 +213,8 @@ export function sanitizeError(error, secrets = []) {
   return message;
 }
 
+const SHARED_TEXT_DECODER = new TextDecoder("utf-8");
+
 export async function readBoundedBody(response, maximumBytes) {
   const declaredLength = Number(response.headers?.get?.("content-length") ?? 0);
   if (declaredLength > maximumBytes) {
@@ -220,7 +222,7 @@ export async function readBoundedBody(response, maximumBytes) {
     error.code = "response_too_large";
     throw error;
   }
-  if (!response.body?.getReader) {
+  if (!response?.body?.getReader) {
     const value = await response.text();
     if (Buffer.byteLength(value, "utf8") > maximumBytes) {
       const error = new Error("API 响应过大");
@@ -245,6 +247,9 @@ export async function readBoundedBody(response, maximumBytes) {
       }
       chunks.push(value);
     }
+  } catch (error) {
+    await reader.cancel?.().catch?.(() => {});
+    throw error;
   } finally {
     reader.releaseLock?.();
   }
@@ -254,7 +259,7 @@ export async function readBoundedBody(response, maximumBytes) {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(merged);
+  return SHARED_TEXT_DECODER.decode(merged);
 }
 
 export function authHeaders(protocol, apiKey, packageVersion = UNKNOWN_PACKAGE_VERSION) {
@@ -510,13 +515,13 @@ export async function requestStream({
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let dataLines = [];
     let accumulatedText = "";
 
     const processEvent = () => {
-      const dataStr = dataLines.join("\n").trim();
+      if (dataLines.length === 0) return;
+      const dataStr = dataLines.length === 1 ? dataLines[0].trim() : dataLines.join("\n").trim();
       dataLines = [];
       if (!dataStr || dataStr === "[DONE]") return;
       try {
@@ -533,26 +538,35 @@ export async function requestStream({
       }
     };
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) {
-          processEvent();
-          continue;
-        }
-        if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).replace(/^ /, ""));
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += SHARED_TEXT_DECODER.decode(value, { stream: true });
+        let newlineIdx;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIdx);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          buffer = buffer.slice(newlineIdx + 1);
+          if (!line.trim()) {
+            processEvent();
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).replace(/^ /, ""));
+          }
         }
       }
+      if (buffer.trim().startsWith("data:")) {
+        dataLines.push(buffer.trim().slice(5).replace(/^ /, ""));
+      }
+      processEvent();
+    } catch (err) {
+      await reader.cancel?.().catch?.(() => {});
+      throw err;
+    } finally {
+      reader.releaseLock?.();
     }
-    if (buffer.trim().startsWith("data:")) {
-      dataLines.push(buffer.trim().slice(5).replace(/^ /, ""));
-    }
-    processEvent();
 
     const finalText = accumulatedText.trim();
     if (!finalText) {

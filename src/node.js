@@ -115,7 +115,11 @@ export function createNodeRuntime({
   const operation = async (payload, callback) => {
     const operationId = asTrimmedString(payload?.operationId) || randomUUID();
     if (payload?.cancel === true) {
-      return ok({ operationId, cancelled: cancelOperation(operationId) });
+      const cancelled = cancelOperation(operationId);
+      if (cancelled) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      return ok({ operationId, cancelled });
     }
     if (disposed) {
       const error = new Error("功能包已停用");

@@ -12,7 +12,13 @@ export function getDocument(root) {
 export function setAttributes(el, attributes = {}) {
   for (const [name, value] of Object.entries(attributes)) {
     if (value === undefined || value === null) continue;
-    if (name === "className") el.className = value;
+    if (name === "className") {
+      el.className = value;
+      if (typeof el.setAttribute === "function") el.setAttribute("class", String(value));
+      if (typeof value === "string" && el.classList?.add) {
+        for (const cls of value.split(/\s+/).filter(Boolean)) el.classList.add(cls);
+      }
+    }
     else if (name === "textContent") el.textContent = value;
     else if (name === "checked" || name === "disabled" || name === "readOnly" || name === "hidden") el[name] = Boolean(value);
     else if (name === "value") el.value = value;
@@ -26,7 +32,7 @@ export function element(doc, tagName, attributes = {}, children = []) {
   setAttributes(result, attributes);
   for (const child of children) {
     if (child === null || child === undefined) continue;
-    result.append(child.nodeType ? child : doc.createTextNode(String(child)));
+    result.append(typeof child === "object" ? child : doc.createTextNode(String(child)));
   }
   return result;
 }
@@ -236,35 +242,194 @@ export function renderSimpleMarkdown(doc, markdownText) {
   return container;
 }
 
-function computeLcsDiff(tokens1, tokens2) {
-  const m = tokens1.length;
-  const n = tokens2.length;
-  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (tokens1[i - 1] === tokens2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+export class TokenPool {
+  constructor() {
+    this.strToId = new Map();
+    this.idToStr = [];
+  }
+  getId(str) {
+    let id = this.strToId.get(str);
+    if (id === undefined) {
+      id = this.idToStr.length;
+      this.strToId.set(str, id);
+      this.idToStr.push(str);
+    }
+    return id;
+  }
+  getText(id) {
+    return this.idToStr[id] ?? "";
+  }
+}
+
+function computeLineLevelDiff(tokens1, tokens2) {
+  const text1 = tokens1.join("");
+  const text2 = tokens2.join("");
+  const lines1 = text1.split("\n");
+  const lines2 = text2.split("\n");
+
+  const pool = new TokenPool();
+  const a = new Int32Array(lines1.length);
+  const b = new Int32Array(lines2.length);
+  for (let i = 0; i < lines1.length; i++) {
+    const suffix = i < lines1.length - 1 ? "\n" : "";
+    a[i] = pool.getId(lines1[i] + suffix);
+  }
+  for (let j = 0; j < lines2.length; j++) {
+    const suffix = j < lines2.length - 1 ? "\n" : "";
+    b[j] = pool.getId(lines2[j] + suffix);
+  }
+
+  const maxBuf = 2 * (lines1.length + lines2.length + 2);
+  const vf = new Int32Array(maxBuf);
+  const vb = new Int32Array(maxBuf);
+
+  const diff = [];
+  myersLinear(a, 0, a.length, b, 0, b.length, pool, diff, vf, vb);
+  return diff;
+}
+
+function findMiddleSnake(a, aStart, aEnd, b, bStart, bEnd, vf, vb) {
+  const n = aEnd - aStart;
+  const m = bEnd - bStart;
+  const delta = n - m;
+  const isOdd = (delta & 1) !== 0;
+  const maxD = Math.ceil((n + m) / 2);
+  const offset = n + m + 1;
+  const bound = 2 * (n + m + 2);
+
+  vf.fill(0, 0, bound);
+  vb.fill(0, 0, bound);
+
+  vf[1 + offset] = 0;
+  vb[1 + offset] = 0;
+
+  for (let d = 0; d <= maxD; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x;
+      if (k === -d || (k !== d && vf[k - 1 + offset] < vf[k + 1 + offset])) {
+        x = vf[k + 1 + offset];
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        x = vf[k - 1 + offset] + 1;
+      }
+      let y = x - k;
+      while (x < n && y < m && a[aStart + x] === b[bStart + y]) {
+        x++;
+        y++;
+      }
+      vf[k + offset] = x;
+
+      if (isOdd && k >= delta - (d - 1) && k <= delta + (d - 1)) {
+        if (x + vb[delta - k + offset] >= n) {
+          return { midA: aStart + x, midB: bStart + y };
+        }
+      }
+    }
+
+    for (let k = -d; k <= d; k += 2) {
+      let u;
+      if (k === -d || (k !== d && vb[k - 1 + offset] < vb[k + 1 + offset])) {
+        u = vb[k + 1 + offset];
+      } else {
+        u = vb[k - 1 + offset] + 1;
+      }
+      let v = u - k;
+      while (u < n && v < m && a[aEnd - 1 - u] === b[bEnd - 1 - v]) {
+        u++;
+        v++;
+      }
+      vb[k + offset] = u;
+
+      if (!isOdd && k >= delta - d && k <= delta + d) {
+        if (u + vf[delta - k + offset] >= n) {
+          return { midA: aEnd - u, midB: bEnd - v };
+        }
       }
     }
   }
-  const diff = [];
-  let i = m;
-  let j = n;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && tokens1[i - 1] === tokens2[j - 1]) {
-      diff.unshift({ type: "same", text: tokens1[i - 1] });
-      i--;
-      j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      diff.unshift({ type: "add", text: tokens2[j - 1] });
-      j--;
-    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
-      diff.unshift({ type: "del", text: tokens1[i - 1] });
-      i--;
+
+  return null;
+}
+
+function myersLinear(a, aStart, aEnd, b, bStart, bEnd, pool, out, vf, vb) {
+  let n = aEnd - aStart;
+  let m = bEnd - bStart;
+
+  if (n <= 0 && m <= 0) return;
+  if (n <= 0) {
+    for (let j = bStart; j < bEnd; j++) out.push({ type: "add", text: pool.getText(b[j]) });
+    return;
+  }
+  if (m <= 0) {
+    for (let i = aStart; i < aEnd; i++) out.push({ type: "del", text: pool.getText(a[i]) });
+    return;
+  }
+
+  let p = 0;
+  while (p < n && p < m && a[aStart + p] === b[bStart + p]) p++;
+  if (p > 0) {
+    for (let i = 0; i < p; i++) out.push({ type: "same", text: pool.getText(a[aStart + i]) });
+    aStart += p;
+    bStart += p;
+    n -= p;
+    m -= p;
+  }
+
+  let s = 0;
+  while (s < n && s < m && a[aEnd - 1 - s] === b[bEnd - 1 - s]) s++;
+  const suffixStartA = aEnd - s;
+  const suffixStartB = bEnd - s;
+  aEnd -= s;
+  bEnd -= s;
+  n -= s;
+  m -= s;
+
+  if (n > 0 || m > 0) {
+    if (n === 0) {
+      for (let j = bStart; j < bEnd; j++) out.push({ type: "add", text: pool.getText(b[j]) });
+    } else if (m === 0) {
+      for (let i = aStart; i < aEnd; i++) out.push({ type: "del", text: pool.getText(a[i]) });
+    } else {
+      const snake = findMiddleSnake(a, aStart, aEnd, b, bStart, bEnd, vf, vb);
+      if (snake && (snake.midA > aStart || snake.midB > bStart) && (snake.midA < aEnd || snake.midB < bEnd)) {
+        myersLinear(a, aStart, snake.midA, b, bStart, snake.midB, pool, out, vf, vb);
+        myersLinear(a, snake.midA, aEnd, b, snake.midB, bEnd, pool, out, vf, vb);
+      } else {
+        for (let i = aStart; i < aEnd; i++) out.push({ type: "del", text: pool.getText(a[i]) });
+        for (let j = bStart; j < bEnd; j++) out.push({ type: "add", text: pool.getText(b[j]) });
+      }
     }
   }
+
+  if (s > 0) {
+    for (let i = 0; i < s; i++) out.push({ type: "same", text: pool.getText(a[suffixStartA + i]) });
+  }
+}
+
+export function computeLcsDiff(tokens1, tokens2) {
+  const t1 = Array.isArray(tokens1) ? tokens1 : [];
+  const t2 = Array.isArray(tokens2) ? tokens2 : [];
+  const n = t1.length;
+  const m = t2.length;
+  if (n === 0 && m === 0) return [];
+  if (n === 0) return t2.map((t) => ({ type: "add", text: t }));
+  if (m === 0) return t1.map((t) => ({ type: "del", text: t }));
+
+  if (n + m > 10000) {
+    return computeLineLevelDiff(t1, t2);
+  }
+
+  const pool = new TokenPool();
+  const a = new Int32Array(n);
+  const b = new Int32Array(m);
+  for (let i = 0; i < n; i++) a[i] = pool.getId(t1[i]);
+  for (let j = 0; j < m; j++) b[j] = pool.getId(t2[j]);
+
+  const maxBuf = 2 * (n + m + 2);
+  const vf = new Int32Array(maxBuf);
+  const vb = new Int32Array(maxBuf);
+
+  const diff = [];
+  myersLinear(a, 0, n, b, 0, m, pool, diff, vf, vb);
   return diff;
 }
 
@@ -273,15 +438,35 @@ export function renderSimpleDiff(doc, original, result) {
   const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);
   const t1 = tokenize(original);
   const t2 = tokenize(result);
-  const diff = computeLcsDiff(t1.slice(0, 1000), t2.slice(0, 1000));
-  for (const item of diff) {
-    if (item.type === "same") {
-      container.append(doc.createTextNode(item.text));
-    } else if (item.type === "del") {
-      container.append(element(doc, "del", { className: "ctpo-diff-del" }, [item.text]));
-    } else if (item.type === "add") {
-      container.append(element(doc, "ins", { className: "ctpo-diff-add" }, [item.text]));
+  const diff = computeLcsDiff(t1, t2);
+
+  const fragment = doc.createDocumentFragment ? doc.createDocumentFragment() : container;
+  let currentType = null;
+  let currentText = "";
+
+  const flush = () => {
+    if (!currentText) return;
+    if (currentType === "same") {
+      fragment.append(doc.createTextNode ? doc.createTextNode(currentText) : currentText);
+    } else if (currentType === "del") {
+      fragment.append(element(doc, "del", { className: "ctpo-diff-del" }, [currentText]));
+    } else if (currentType === "add") {
+      fragment.append(element(doc, "ins", { className: "ctpo-diff-add" }, [currentText]));
     }
+    currentText = "";
+  };
+
+  for (const item of diff) {
+    if (item.type !== currentType) {
+      flush();
+      currentType = item.type;
+    }
+    currentText += item.text;
+  }
+  flush();
+
+  if (fragment !== container) {
+    container.append(fragment);
   }
   return container;
 }

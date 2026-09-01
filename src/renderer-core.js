@@ -44,29 +44,81 @@ function hasAttributeValue(element, name, value) {
   return element?.getAttribute?.(name)?.toLowerCase() === value;
 }
 
+const visibilityCache = new WeakMap();
+
 export function isElementVisible(element) {
   if (!element || element.hidden || hasAttributeValue(element, "aria-hidden", "true")) return false;
+  if (visibilityCache.has(element)) return visibilityCache.get(element);
   const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
-  if (style && (style.display === "none" || style.visibility === "hidden")) return false;
-  if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) {
-    if (element.ownerDocument?.defaultView) return false;
+  if (style && (style.display === "none" || style.visibility === "hidden")) {
+    visibilityCache.set(element, false);
+    return false;
   }
+  if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) {
+    if (element.ownerDocument?.defaultView) {
+      visibilityCache.set(element, false);
+      return false;
+    }
+  }
+  visibilityCache.set(element, true);
   return true;
 }
 
+const exclusionCache = new WeakMap();
+
 export function isExcludedFromComposer(element) {
-  if (!element) return true;
-  if (element.matches?.(EXCLUDED_SELECTOR)) return true;
-  const ancestor = element.closest?.(EXCLUDED_SELECTOR);
-  if (ancestor) return true;
+  if (!element || typeof element !== "object") return true;
+  if (exclusionCache.has(element)) return exclusionCache.get(element);
+
+  const tagName = element.tagName?.toLowerCase();
+  if (tagName === "dialog") {
+    exclusionCache.set(element, true);
+    return true;
+  }
   const role = element.getAttribute?.("role")?.toLowerCase();
-  if (["menu", "listbox", "dialog"].includes(role)) return true;
-  return false;
+  if (["menu", "listbox", "dialog", "menuitem"].includes(role)) {
+    exclusionCache.set(element, true);
+    return true;
+  }
+
+  if (
+    element.hasAttribute?.("data-settings")
+    || element.hasAttribute?.("data-history-editor")
+    || element.hasAttribute?.("data-command-menu")
+    || element.hasAttribute?.("data-command-palette")
+    || element.hasAttribute?.("data-command-list")
+    || element.hasAttribute?.("data-suggestion-list")
+    || element.hasAttribute?.("data-suggestions")
+    || element.hasAttribute?.("data-composer-overlay-floating-ui")
+    || element.hasAttribute?.("data-radix-popper-content-wrapper")
+    || element.hasAttribute?.("data-radix-menu-content")
+    || element.hasAttribute?.("data-radix-command-root")
+    || element.hasAttribute?.("data-floating-ui-portal")
+    || element.hasAttribute?.("cmdk-root")
+    || hasAttributeValue(element, "aria-modal", "true")
+  ) {
+    exclusionCache.set(element, true);
+    return true;
+  }
+
+  if (element.matches?.(EXCLUDED_SELECTOR)) {
+    exclusionCache.set(element, true);
+    return true;
+  }
+  const ancestor = element.closest?.(EXCLUDED_SELECTOR);
+  const result = Boolean(ancestor);
+  exclusionCache.set(element, result);
+  return result;
 }
 
 export function isComposerCandidate(element) {
-  if (!element || !isElementVisible(element) || isExcludedFromComposer(element)) return false;
+  if (!element || typeof element !== "object") return false;
+
   const tagName = element.tagName?.toLowerCase();
+  if (tagName === "input") return false;
+  if (element.disabled || element.readOnly || element.getAttribute?.("aria-disabled") === "true") return false;
+  if (element.hidden || hasAttributeValue(element, "aria-hidden", "true")) return false;
+
   const isTextArea = tagName === "textarea";
   const contentEditableAttribute = element.getAttribute?.("contenteditable");
   const contentEditableValue = String(element.contentEditable ?? "").toLowerCase();
@@ -75,11 +127,9 @@ export function isComposerCandidate(element) {
     || (typeof contentEditableAttribute === "string" && contentEditableAttribute.toLowerCase() !== "false");
   const isRoleTextbox = element.getAttribute?.("role")?.toLowerCase() === "textbox";
   if (!isTextArea && !isContentEditable && !isRoleTextbox) return false;
-  if (element.disabled || element.readOnly || element.getAttribute?.("aria-disabled") === "true") return false;
-  if (tagName === "input") return false;
-  const type = element.getAttribute?.("type")?.toLowerCase();
-  if (type && type !== "text") return false;
-  return true;
+
+  if (isExcludedFromComposer(element)) return false;
+  return isElementVisible(element);
 }
 
 export function readInputText(element) {

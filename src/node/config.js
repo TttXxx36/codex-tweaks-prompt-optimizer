@@ -215,6 +215,20 @@ export function normalizeSettings(input = {}, existing = DEFAULT_SETTINGS) {
         streaming: source.streaming !== undefined ? Boolean(source.streaming) : p.streaming,
       };
     }
+  } else {
+    // If top-level fields were directly updated (e.g. external edits), sync them to active profile
+    const activeIndex = profiles.findIndex((p) => p.id === activeProfileId);
+    if (activeIndex >= 0) {
+      if (source.model !== undefined && typeof source.model === "string" && source.model.trim() !== profiles[activeIndex].model) {
+        profiles[activeIndex].model = source.model.trim();
+      }
+      if (source.baseUrl !== undefined && typeof source.baseUrl === "string" && source.baseUrl.trim() !== profiles[activeIndex].baseUrl) {
+        profiles[activeIndex].baseUrl = source.baseUrl.trim();
+      }
+      if (source.protocol !== undefined && PROTOCOLS.includes(source.protocol) && source.protocol !== profiles[activeIndex].protocol) {
+        profiles[activeIndex].protocol = source.protocol;
+      }
+    }
   }
 
   // Active profile determines root values

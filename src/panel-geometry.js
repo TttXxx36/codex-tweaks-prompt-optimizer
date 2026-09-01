@@ -4,6 +4,10 @@ export const PANEL_MIN_WIDTH = 320;
 export const PANEL_MIN_HEIGHT = 240;
 export const PANEL_MARGIN = 12;
 export const PANEL_GAP = 12;
+export const DEFAULT_COMPOSER_BUTTON_WIDTH = 68;
+export const DEFAULT_MENU_BUTTON_WIDTH = 24;
+export const DEFAULT_BUTTON_HEIGHT = 28;
+export const DEFAULT_RESTORE_BUTTON_WIDTH = 96;
 
 function finite(value, fallback) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;

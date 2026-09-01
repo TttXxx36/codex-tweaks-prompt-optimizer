@@ -234,14 +234,18 @@ export class ComposerButtonManager {
       hidden: true,
     }, [svgIcon(this.doc, "chevron")]);
 
-    const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false, lastPos: null };
+    const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false, lastPos: null, lastAnchorRect: null };
     entry.debugPasteListener = () => {
-      this.onRecordGeometry?.(entry, "paste-event", entry.anchor);
-      this.scheduleScan?.();
+      if (this.isDebugGeometryEnabled?.()) {
+        this.onRecordGeometry?.(entry, "paste-event", entry.anchor);
+        this.scheduleScan?.();
+      }
     };
     entry.debugInputListener = () => {
-      this.onRecordGeometry?.(entry, "input-event", entry.anchor);
-      this.scheduleScan?.();
+      if (this.isDebugGeometryEnabled?.()) {
+        this.onRecordGeometry?.(entry, "input-event", entry.anchor);
+        this.scheduleScan?.();
+      }
     };
     composer.addEventListener?.("paste", entry.debugPasteListener);
     composer.addEventListener?.("input", entry.debugInputListener);
@@ -271,19 +275,40 @@ export class ComposerButtonManager {
   positionComposerButton(entry, { previousAnchor = null, phase = "position" } = {}) {
     if (!entry.button.parentElement || this.disposed) return;
     const anchorRect = entry.anchor.getBoundingClientRect?.();
-    const buttonRect = entry.button.getBoundingClientRect?.();
-    const menuButtonRect = entry.menuButton?.getBoundingClientRect?.();
-    const totalButtonWidth = (Number(buttonRect?.width) || 68) + (Number(menuButtonRect?.width) || 24);
-    const combinedButtonRect = { width: totalButtonWidth, height: Number(buttonRect?.height) || 28 };
+    if (!anchorRect) return;
+
+    // Passive size caching: avoid layout thrashing by using constant button sizes
+    const totalButtonWidth = 68 + (entry.menuButton ? 24 : 0);
+    const combinedButtonRect = { width: totalButtonWidth, height: 28 };
+
+    // Dirty flag check: skip DOM style mutations if anchor rectangle is unchanged
+    const lastRect = entry.lastAnchorRect;
+    if (
+      lastRect
+      && Math.abs(lastRect.left - (Number(anchorRect.left) || 0)) < 0.5
+      && Math.abs(lastRect.top - (Number(anchorRect.top) || 0)) < 0.5
+      && Math.abs(lastRect.height - (Number(anchorRect.height) || 0)) < 0.5
+      && !entry.button.hidden
+    ) {
+      return;
+    }
+
     const position = getComposerButtonPosition(anchorRect, combinedButtonRect, this.viewportSize(), 6);
     if (!position) {
       entry.button.hidden = true;
       if (entry.menuButton) entry.menuButton.hidden = true;
       if (entry.restoreButton) entry.restoreButton.hidden = true;
+      entry.lastAnchorRect = null;
       return;
     }
 
-    const btnW = Number(buttonRect?.width) || 68;
+    entry.lastAnchorRect = {
+      left: Number(anchorRect.left) || 0,
+      top: Number(anchorRect.top) || 0,
+      height: Number(anchorRect.height) || 0,
+    };
+
+    const btnW = 68;
     entry.button.style.left = `${position.left}px`;
     entry.button.style.top = `${position.top}px`;
     entry.button.hidden = false;
@@ -295,8 +320,7 @@ export class ComposerButtonManager {
     }
 
     if (entry.restoreButton) {
-      const restoreRect = entry.restoreButton.getBoundingClientRect?.();
-      const restoreWidth = Number(restoreRect?.width) || 96;
+      const restoreWidth = 96;
       entry.restoreButton.style.left = `${position.left - restoreWidth - 6}px`;
       entry.restoreButton.style.top = `${position.top}px`;
       entry.restoreButton.hidden = false;

@@ -154,6 +154,7 @@ export function renderHistoryList(doc, {
   listContainer.append(batchBar);
 
   const ul = element(doc, "ul", { className: "ctpo-history-list" });
+  const fragment = doc.createDocumentFragment ? doc.createDocumentFragment() : ul;
 
   for (const entry of filtered) {
     const isPinned = Boolean(entry.isPinned);
@@ -182,25 +183,76 @@ export function renderHistoryList(doc, {
       });
     });
 
-    const hoverCard = element(doc, "div", { className: "ctpo-history-hover-card" }, [
-      element(doc, "div", { className: "ctpo-history-hover-title" }, ["📝 原始提示词："]),
-      element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.original]),
-      element(doc, "div", { className: "ctpo-history-hover-title", style: "margin-top: 6px;" }, ["✨ 优化结果预览："]),
-      element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.result.length > 260 ? `${entry.result.slice(0, 260)}...` : entry.result]),
-    ]);
+    const preview = element(doc, "div", {
+      className: "ctpo-history-copy",
+      title: "",
+      textContent: isPinned ? `⭐ ${entry.original}` : entry.original,
+    });
 
-    const preview = element(doc, "div", { className: "ctpo-history-copy", title: "" }, [
-      element(doc, "div", { className: "ctpo-history-preview" }, [
-        isPinned ? element(doc, "span", { className: "ctpo-pinned-badge" }, ["⭐ 已收藏"]) : null,
-        entry.original,
-      ]),
-      element(doc, "div", { className: "ctpo-history-date" }, [new Date(entry.createdAt).toLocaleString()]),
-      hoverCard,
-    ]);
+    let hoverTimer = null;
+    let mountedHoverCard = null;
 
-    const pinBtn = actionButton(doc, isPinned ? "已收藏" : "收藏", "toggle-pin-history", {
-      icon: isPinned ? "starFilled" : "star",
-      title: isPinned ? "取消收藏" : "收藏并默认置顶（不受数量清理限制）",
+    const onPointerEnter = () => {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+      for (const card of preview.querySelectorAll?.(".ctpo-history-hover-card") ?? []) {
+        card.remove();
+      }
+      if (mountedHoverCard) {
+        mountedHoverCard.remove();
+        mountedHoverCard = null;
+      }
+
+      hoverTimer = setTimeout(() => {
+        hoverTimer = null;
+        let isConnected = preview.isConnected !== false;
+        let curr = preview;
+        while (curr && isConnected) {
+          if (curr.isConnected === false) { isConnected = false; break; }
+          if (!curr.parentElement) {
+            if (curr.tagName === "UL" || curr.tagName === "LI") {
+              isConnected = false;
+            }
+            break;
+          }
+          curr = curr.parentElement;
+        }
+        if (!isConnected || !preview.parentElement) return;
+        mountedHoverCard = element(doc, "div", { className: "ctpo-history-hover-card" }, [
+          element(doc, "div", { className: "ctpo-history-hover-title" }, ["📝 原始提示词："]),
+          element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.original]),
+          element(doc, "div", { className: "ctpo-history-hover-title", style: "margin-top: 6px;" }, ["✨ 优化结果预览："]),
+          element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.result.length > 260 ? `${entry.result.slice(0, 260)}...` : entry.result]),
+        ]);
+        preview.append(mountedHoverCard);
+      }, 120);
+    };
+
+    const onPointerLeave = () => {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
+      }
+      for (const card of preview.querySelectorAll?.(".ctpo-history-hover-card") ?? []) {
+        card.remove();
+      }
+      if (mountedHoverCard) {
+        mountedHoverCard.remove();
+        mountedHoverCard = null;
+      }
+    };
+
+    preview.addEventListener("pointerenter", onPointerEnter);
+    preview.addEventListener("pointerleave", onPointerLeave);
+
+    const pinBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-button",
+      "data-ctpo-action": "toggle-pin-history",
+      "data-ctpo-tooltip": isPinned ? "取消收藏" : "收藏并默认置顶（不受数量清理限制）",
+      textContent: isPinned ? "已收藏" : "收藏",
     });
     pinBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -224,13 +276,25 @@ export function renderHistoryList(doc, {
       }
     });
 
-    const previewBtn = actionButton(doc, "预览", "history-preview", { icon: "eye" });
+    const previewBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-button",
+      "data-ctpo-action": "history-preview",
+      "data-ctpo-tooltip": "预览",
+      textContent: "预览",
+    });
     previewBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       onPreviewHistory?.(entry);
     });
 
-    const delBtn = actionButton(doc, "删除", "history-delete", { icon: "trash", kind: "danger" });
+    const delBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-button ctpo-button-danger",
+      "data-ctpo-action": "history-delete",
+      "data-ctpo-tooltip": "删除",
+      textContent: "删除",
+    });
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       showModalDialog(doc, {
@@ -282,7 +346,14 @@ export function renderHistoryList(doc, {
       itemEl.setAttribute("data-expanded", itemEl.getAttribute("data-expanded") === "true" ? "false" : "true");
     });
 
-    ul.append(itemEl);
+    fragment.append(itemEl);
+  }
+  if (fragment !== ul) {
+    if (Array.isArray(fragment.children) && fragment.tagName === "FRAGMENT") {
+      ul.append(...fragment.children);
+    } else {
+      ul.append(fragment);
+    }
   }
   listContainer.append(ul);
 }
