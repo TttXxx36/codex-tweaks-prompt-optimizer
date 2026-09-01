@@ -25,7 +25,7 @@ import {
   normalizePanelSize,
 } from "./panel-geometry.js";
 
-const RENDERER_DEFAULTS = {
+export const RENDERER_DEFAULTS = {
   schemaVersion: 1,
   enabled: true,
   streaming: true,
@@ -119,7 +119,7 @@ function svgIcon(doc, name) {
   return svg;
 }
 
-function renderSimpleMarkdown(doc, markdownText) {
+export function renderSimpleMarkdown(doc, markdownText) {
   const container = element(doc, "div", { className: "ctpo-markdown-view" });
   const raw = String(markdownText ?? "").trim();
   if (!raw) {
@@ -245,7 +245,7 @@ function renderSimpleMarkdown(doc, markdownText) {
   return container;
 }
 
-function computeLcsDiff(tokens1, tokens2) {
+export function computeLcsDiff(tokens1, tokens2) {
   const m = tokens1.length;
   const n = tokens2.length;
   const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
@@ -277,7 +277,7 @@ function computeLcsDiff(tokens1, tokens2) {
   return diff;
 }
 
-function renderSimpleDiff(doc, original, result) {
+export function renderSimpleDiff(doc, original, result) {
   const container = element(doc, "div", { className: "ctpo-diff-container" });
   const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);
   const t1 = tokenize(original);
@@ -308,115 +308,256 @@ function actionButton(doc, label, action, { kind = "default", icon, title, disab
   return button;
 }
 
+function field(doc, labelText, control, hintText, hintId) {
+  const label = element(doc, "label", { className: "ctpo-field" });
+  const labelNode = element(doc, "span", { className: "ctpo-label" }, [labelText]);
+  label.append(labelNode, control);
+  if (hintText) label.append(element(doc, "span", { className: "ctpo-hint", id: hintId }, [hintText]));
+  return label;
+}
+
+async function copyText(text) {
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fallback
+    }
+  }
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.append(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    const error = new Error("无法复制文本到剪贴板");
+    error.code = "clipboard_error";
+    throw error;
+  } finally {
+    textArea.remove();
+  }
+}
+
+function setViewBusy(view, busy) {
+  view.busy = busy;
+  if (!view.container) return;
+  for (const control of view.container.querySelectorAll?.("button, input, select, textarea") ?? []) {
+    control.disabled = busy;
+  }
+}
+
 function createSettingsId(view, suffix) {
   return `ctpo-${view.id}-${suffix}`;
 }
 
-function isNodeResponseFailure(response) {
-  return response?.status === "failed" || response?.status === "cancelled";
-}
+export function showModalDialog({ doc = document, title, message = "", inputPlaceholder = "", initialValue = "", showInput = false, confirmText = "确定", cancelText = "取消", isDanger = false, onConfirm }) {
+  const existing = doc.querySelector(".ctpo-modal-overlay");
+  if (existing) existing.remove();
 
-function errorFromNodeResponse(response) {
-  const error = new Error(response?.message || (response?.status === "cancelled" ? "请求已取消" : "Node 请求失败"));
-  error.code = response?.code || (response?.status === "cancelled" ? "cancelled" : "node_failed");
-  return error;
+  const overlay = element(doc, "div", { className: "ctpo-modal-overlay" });
+  overlay.setAttribute(ROOT_ATTRIBUTE, "");
+  const modal = element(doc, "div", { className: "ctpo-modal-dialog", role: "dialog", "aria-modal": "true" });
+
+  const titleEl = element(doc, "h3", { className: "ctpo-modal-title" }, [title]);
+  modal.append(titleEl);
+
+  if (message) {
+    modal.append(element(doc, "p", { className: "ctpo-modal-message" }, [message]));
+  }
+
+  let inputEl = null;
+  if (showInput) {
+    inputEl = element(doc, "input", {
+      type: "text",
+      className: "ctpo-modal-input",
+      placeholder: inputPlaceholder,
+      value: initialValue,
+    });
+    modal.append(inputEl);
+  }
+
+  const actions = element(doc, "div", { className: "ctpo-actions ctpo-modal-actions" });
+  const confirmBtn = actionButton(doc, confirmText, "modal-confirm", {
+    icon: "check",
+    kind: isDanger ? "danger" : "primary",
+  });
+  const cancelBtn = actionButton(doc, cancelText, "modal-cancel", { icon: "cancel" });
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Enter" && (!inputEl || doc.activeElement === inputEl)) {
+      e.preventDefault();
+      submit();
+    }
+  };
+
+  const close = () => {
+    overlay.remove();
+    doc.removeEventListener("keydown", onKeyDown);
+  };
+
+  const submit = async () => {
+    const value = inputEl ? inputEl.value.trim() : "";
+    if (showInput && !value) {
+      inputEl.focus();
+      return;
+    }
+    close();
+    if (typeof onConfirm === "function") {
+      await onConfirm(value);
+    }
+  };
+
+  confirmBtn.addEventListener("click", submit);
+  cancelBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+
+  actions.append(confirmBtn, cancelBtn);
+  modal.append(actions);
+  overlay.append(modal);
+  doc.body?.append(overlay);
+  doc.addEventListener("keydown", onKeyDown);
+
+  if (inputEl) {
+    setTimeout(() => {
+      inputEl.focus();
+      inputEl.select();
+    }, 20);
+  } else {
+    setTimeout(() => confirmBtn.focus(), 20);
+  }
 }
 
 function createPanelLayout(layout = {}) {
-  const hasWidth = Number.isFinite(Number(layout.width));
   return {
-    left: Number.isFinite(Number(layout.left)) ? Number(layout.left) : null,
-    top: Number.isFinite(Number(layout.top)) ? Number(layout.top) : null,
-    width: hasWidth ? Number(layout.width) : null,
-    height: Number.isFinite(Number(layout.height)) ? Number(layout.height) : PANEL_DEFAULT_HEIGHT,
-    manual: layout.manual === true,
-    autoWidth: layout.autoWidth === true || (!hasWidth && layout.autoWidth !== false),
+    width: Number(layout.width) || PANEL_DEFAULT_WIDTH,
+    height: Number(layout.height) || PANEL_DEFAULT_HEIGHT,
+    left: Number.isFinite(layout.left) ? layout.left : null,
+    top: Number.isFinite(layout.top) ? layout.top : null,
+    manual: Boolean(layout.manual),
   };
+}
+
+function finiteNumber(value, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function geometryRect(element) {
+  if (!element || typeof element.getBoundingClientRect !== "function") return null;
+  const rect = element.getBoundingClientRect();
+  return {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  };
+}
+
+function transformZoom(element) {
+  if (!element?.ownerDocument?.defaultView) return null;
+  const view = element.ownerDocument.defaultView;
+  try {
+    const style = view.getComputedStyle(element);
+    return {
+      zoom: style.zoom ?? "normal",
+      transform: style.transform ?? "none",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   const doc = getDocument(root);
-  if (!root || !doc) throw new Error("Renderer root 未提供");
+  if (!doc) throw new Error("无法获取当前文档对象");
 
-  const state = {
-    disposed: false,
-    ready: false,
-    settings: { ...RENDERER_DEFAULTS },
-    history: [],
-    settingsViews: new Set(),
-    attached: new Map(),
-    latestSnapshot: null,
-    latestRestoreEntry: null,
-    pendingResults: new Map(),
-    activeOperations: new Map(),
-    panel: null,
-    panelHost: null,
-    panelResizeObserver: null,
-    panelDragCleanup: null,
-    panelContextCleanup: null,
-    composerMenu: null,
-    settingsDialog: null,
-    uiRoot: null,
-    composerButtonHost: null,
-    notice: { text: "", kind: "" },
-    debugGeometry: false,
-    debugGeometryReports: [],
-    scanTimer: null,
-    scanRaf: null,
-    observer: null,
-    toastTimer: null,
-    cleanupRegistered: false,
-    chunkUnsubscribe: null,
-  };
+  const uiRoot = element(doc, "div", {
+    [ROOT_ATTRIBUTE]: "",
+    className: "ctpo-ui-root",
+  });
+  uiRoot.style.inset = "0";
+  uiRoot.style.pointerEvents = "none";
+  uiRoot.style.position = "fixed";
+  uiRoot.style.zIndex = "2147482998";
+  doc.body?.append(uiRoot);
 
-  root.setAttribute(ROOT_ATTRIBUTE, "");
-  const overlayParent = doc.body ?? root;
-  const uiRoot = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-ui-root" });
-  const composerButtonHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-composer-button-host" });
-  composerButtonHost.style.inset = "0";
-  composerButtonHost.style.pointerEvents = "none";
-  composerButtonHost.style.position = "fixed";
-  composerButtonHost.style.zIndex = "2147482999";
-  const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
-  panelHost.style.inset = "0";
-  panelHost.style.pointerEvents = "none";
-  panelHost.style.position = "fixed";
-  panelHost.style.zIndex = "2147483000";
   const toastHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-toast-host" });
   toastHost.style.inset = "0";
   toastHost.style.pointerEvents = "none";
   toastHost.style.position = "fixed";
   toastHost.style.zIndex = "2147483001";
-  const settingsDialogHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-settings-dialog-host" });
-  const tooltipElement = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-tooltip", role: "tooltip", "aria-hidden": "true" });
-  uiRoot.append(composerButtonHost, panelHost, toastHost, settingsDialogHost, tooltipElement);
-  overlayParent.append(uiRoot);
-  state.uiRoot = uiRoot;
-  state.composerButtonHost = composerButtonHost;
-  state.panelHost = panelHost;
-  state.settingsDialogHost = settingsDialogHost;
-  state.tooltipElement = tooltipElement;
+  uiRoot.append(toastHost);
 
-  let activeTooltipTarget = null;
-  let tooltipTimer = null;
+  const panelHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-panel-host" });
+  panelHost.style.inset = "0";
+  panelHost.style.pointerEvents = "none";
+  panelHost.style.position = "fixed";
+  panelHost.style.zIndex = "2147483000";
+  uiRoot.append(panelHost);
 
-  const hideCustomTooltip = () => {
-    activeTooltipTarget = null;
-    if (tooltipTimer) clearTimeout(tooltipTimer);
-    tooltipElement.style.opacity = "0";
-    tooltipElement.style.visibility = "hidden";
-    tooltipElement.style.transform = "translateY(2px)";
+  const composerButtonHost = element(doc, "div", { [ROOT_ATTRIBUTE]: "", className: "ctpo-composer-host" });
+  composerButtonHost.style.inset = "0";
+  composerButtonHost.style.pointerEvents = "none";
+  composerButtonHost.style.position = "fixed";
+  composerButtonHost.style.zIndex = "2147482999";
+  uiRoot.append(composerButtonHost);
+
+  const customTooltip = element(doc, "div", {
+    [ROOT_ATTRIBUTE]: "",
+    className: "ctpo-tooltip",
+    role: "tooltip",
+    "aria-hidden": "true",
+  });
+  uiRoot.append(customTooltip);
+
+  const state = {
+    settings: { ...RENDERER_DEFAULTS },
+    history: [],
+    notice: { text: "", kind: "" },
+    attached: new Map(),
+    settingsViews: new Set(),
+    activeOperations: new Map(),
+    pendingResults: new Map(),
+    panel: null,
+    composerMenu: null,
+    latestSnapshot: null,
+    latestRestoreEntry: null,
+    settingsDialog: null,
+    panelHost,
+    composerButtonHost,
+    panelResizeObserver: null,
+    panelDragCleanup: null,
+    panelContextCleanup: null,
+    scanTimer: null,
+    scanRaf: null,
+    debugGeometry: false,
+    debugGeometryReports: [],
+    disposed: false,
   };
+
+  let tooltipTarget = null;
+  let tooltipTimer = null;
 
   const showCustomTooltip = (target, text) => {
     if (!target || !text || !target.isConnected || state.disposed) return;
-    tooltipElement.textContent = text;
-    tooltipElement.style.visibility = "hidden";
-    tooltipElement.style.display = "block";
-    tooltipElement.style.opacity = "0";
+    customTooltip.textContent = text;
+    customTooltip.style.visibility = "hidden";
+    customTooltip.style.display = "block";
+    customTooltip.style.opacity = "0";
 
     const targetRect = target.getBoundingClientRect?.();
-    const tooltipRect = tooltipElement.getBoundingClientRect?.();
+    const tooltipRect = customTooltip.getBoundingClientRect?.();
     const viewport = viewportSize();
 
     if (!targetRect || !tooltipRect) return;
@@ -432,51 +573,80 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       top = Math.max(8, targetRect.top - tooltipHeight - 6);
     }
 
-    tooltipElement.style.left = `${Math.round(left)}px`;
-    tooltipElement.style.top = `${Math.round(top)}px`;
-    tooltipElement.style.visibility = "visible";
-    tooltipElement.style.opacity = "1";
-    tooltipElement.style.transform = "translateY(0)";
+    customTooltip.style.left = `${Math.round(left)}px`;
+    customTooltip.style.top = `${Math.round(top)}px`;
+    customTooltip.style.visibility = "visible";
+    customTooltip.style.opacity = "1";
+    customTooltip.style.transform = "translateY(0)";
   };
 
-  const onDocumentPointerOver = (e) => {
+  const hideCustomTooltip = () => {
+    tooltipTarget = null;
+    if (tooltipTimer) {
+      clearTimeout(tooltipTimer);
+      tooltipTimer = null;
+    }
+    customTooltip.style.opacity = "0";
+    customTooltip.style.visibility = "hidden";
+    customTooltip.style.transform = "translateY(2px)";
+  };
+
+  const onGlobalPointerOver = (e) => {
+    if (state.disposed) return;
     const target = e.target?.closest?.("[data-ctpo-tooltip]");
     if (!target) return;
     const text = target.getAttribute("data-ctpo-tooltip");
     if (!text) return;
-    activeTooltipTarget = target;
+    tooltipTarget = target;
     if (tooltipTimer) clearTimeout(tooltipTimer);
     tooltipTimer = setTimeout(() => {
-      if (activeTooltipTarget === target && target.isConnected) {
+      if (tooltipTarget === target && target.isConnected && !state.disposed) {
         showCustomTooltip(target, text);
       }
     }, 180);
   };
 
-  const onDocumentPointerOut = (e) => {
+  const onGlobalPointerOut = (e) => {
     const target = e.target?.closest?.("[data-ctpo-tooltip]");
-    if (target && target === activeTooltipTarget) {
+    if (target && target === tooltipTarget) {
       hideCustomTooltip();
     }
   };
 
-  let settingsRegistration = null;
-
-  const setNotice = (text, kind = "") => {
-    state.notice = { text, kind };
-    for (const view of state.settingsViews) {
-      if (view.status) {
-        view.status.textContent = text;
-        view.status.dataset.kind = kind;
-      }
-    }
+  const onGlobalPointerDown = () => {
+    hideCustomTooltip();
   };
 
+  doc.addEventListener("pointerover", onGlobalPointerOver, true);
+  doc.addEventListener("pointerout", onGlobalPointerOut, true);
+  doc.addEventListener("pointerdown", onGlobalPointerDown, true);
+
+  const documentHref = () => currentLocationHref(doc);
+  const viewportSize = () => ({
+    width: doc.defaultView?.innerWidth ?? 1200,
+    height: doc.defaultView?.innerHeight ?? 800,
+  });
+
+  const visualViewportGeometry = () => {
+    const visual = doc.defaultView?.visualViewport;
+    if (!visual) return null;
+    return {
+      width: Math.round(visual.width),
+      height: Math.round(visual.height),
+      scale: visual.scale ?? 1,
+      offsetLeft: Math.round(visual.offsetLeft ?? 0),
+      offsetTop: Math.round(visual.offsetTop ?? 0),
+      pageLeft: Math.round(visual.pageLeft ?? 0),
+      pageTop: Math.round(visual.pageTop ?? 0),
+    };
+  };
+
+  let toastTimer = null;
   const showToast = (message, kind = "info") => {
     if (state.disposed) return;
-    if (state.toastTimer) {
-      clearTimeout(state.toastTimer);
-      state.toastTimer = null;
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
     }
     const toast = element(doc, "div", {
       className: `ctpo-toast ctpo-toast-${kind}`,
@@ -489,194 +659,154 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     toast.style.bottom = "16px";
     toast.style.zIndex = "2147483001";
     toastHost.replaceChildren(toast);
-    state.toastTimer = setTimeout(() => {
-      state.toastTimer = null;
+    toastTimer = setTimeout(() => {
+      toastTimer = null;
       if (toast.parentElement === toastHost) toastHost.replaceChildren();
-    }, 5_000);
+    }, 5000);
   };
 
-  const callNode = async (method, payload = {}) => {
-    if (!node || typeof node.invoke !== "function") {
-      const error = new Error("Node 权限尚未授权");
-      error.code = "node_unavailable";
-      throw error;
-    }
-    const response = await node.invoke(method, payload);
-    if (isNodeResponseFailure(response)) throw errorFromNodeResponse(response);
-    return response;
-  };
-
-  if (typeof node?.on === "function") {
-    state.chunkUnsubscribe = node.on("optimizer-chunk", (data) => {
-      if (!data || !state.panel) return;
-      if (state.panel.operationId === data.operationId) {
-        state.panel.result = data.accumulated || state.panel.result;
-        state.panel.isStreaming = !data.isDone;
-        const resultEl = state.panelHost.querySelector?.("#ctpo-preview-result");
-        if (resultEl && resultEl.tagName === "TEXTAREA") {
-          resultEl.value = state.panel.result;
-          resultEl.scrollTop = resultEl.scrollHeight;
-        }
-        if (data.isDone) {
-          const streamingTag = state.panelHost.querySelector?.(".ctpo-streaming-tag");
-          if (streamingTag) streamingTag.remove();
-        }
+  const setNotice = (text, kind = "") => {
+    state.notice = { text, kind };
+    for (const view of state.settingsViews) {
+      if (view.status) {
+        view.status.textContent = text;
+        view.status.dataset.kind = kind;
       }
-    });
-  }
+    }
+  };
 
   const refreshSettingsViews = () => {
-    for (const view of state.settingsViews) view.render();
-  };
-
-  const refreshHistory = async () => {
-    if (!node) return;
-    try {
-      const response = await callNode("list-history");
-      state.history = Array.isArray(response.entries) ? response.entries : [];
-      refreshSettingsViews();
-    } catch (error) {
-      setNotice(error.message, "error");
-    }
-  };
-
-  const persistAccepted = async ({ original, result, clarifications = [], mode }) => {
-    if (state.settings.historyLimit === 0) return;
-    await callNode("save-settings", {
-      historyRecord: {
-        original,
-        result,
-        clarifications,
-        mode,
-        createdAt: new Date().toISOString(),
-      },
-    });
-    await refreshHistory();
-  };
-
-  const closePanel = () => {
-    const panel = state.panel;
-    state.panel = null;
-    clearPanelInteractions();
-    if (panel?.operationId && panel.operationMethod) {
-      node?.invoke?.(panel.operationMethod, { operationId: panel.operationId, cancel: true }).catch?.(() => {});
-    }
-    state.panelHost.replaceChildren();
-  };
-
-  const currentComposer = () => {
-    const candidates = findComposerCandidates(doc);
-    return candidates.find((candidate) => !candidate.closest?.(`[${ROOT_ATTRIBUTE}]`)) ?? null;
-  };
-
-  const documentHref = () => doc.defaultView?.location?.href ?? "";
-
-  const panelAnchorElement = (panelState) => {
-    const contextElement = panelState?.context?.element;
-    if (contextElement?.isConnected !== false && contextElement?.getBoundingClientRect) return findComposerRegion(contextElement) ?? contextElement;
-    const composer = currentComposer();
-    return findComposerRegion(composer) ?? composer;
-  };
-
-  const panelAnchorRect = (panelState) => {
-    const element = panelAnchorElement(panelState);
-    if (!element) return null;
-    const rect = element.getBoundingClientRect?.();
-    if (!rect) return null;
-    const left = Number(rect.left);
-    const top = Number(rect.top);
-    const right = Number.isFinite(Number(rect.right)) ? Number(rect.right) : left + Number(rect.width || 0);
-    const bottom = Number.isFinite(Number(rect.bottom)) ? Number(rect.bottom) : top + Number(rect.height || 0);
-    if (![left, top, right, bottom].every(Number.isFinite)) return null;
-    return { left, top, right, bottom };
-  };
-
-  const viewportSize = () => ({
-    width: Math.max(1, Number(doc.defaultView?.innerWidth || doc.documentElement?.clientWidth || PANEL_DEFAULT_WIDTH + PANEL_MARGIN * 2)),
-    height: Math.max(1, Number(doc.defaultView?.innerHeight || doc.documentElement?.clientHeight || PANEL_DEFAULT_HEIGHT + PANEL_MARGIN * 2)),
-  });
-
-  const finiteNumber = (value) => {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-  };
-
-  const geometryRect = (target) => {
-    const rect = target?.getBoundingClientRect?.();
-    if (!rect) return null;
-    const left = finiteNumber(rect.left) ?? finiteNumber(rect.x);
-    const top = finiteNumber(rect.top) ?? finiteNumber(rect.y);
-    const width = finiteNumber(rect.width);
-    const height = finiteNumber(rect.height);
-    const right = finiteNumber(rect.right) ?? (left !== null && width !== null ? left + width : null);
-    const bottom = finiteNumber(rect.bottom) ?? (top !== null && height !== null ? top + height : null);
-    return { left, top, right, bottom, width, height, x: finiteNumber(rect.x) ?? left, y: finiteNumber(rect.y) ?? top };
-  };
-
-  const geometryIdentity = (target) => {
-    if (!target) return null;
-    const attribute = (name) => target.getAttribute?.(name) || "";
-    return {
-      tag: String(target.tagName || "").toLowerCase(),
-      role: attribute("role"),
-      id: String(target.id || ""),
-      testId: attribute("data-testid"),
-      ariaLabel: attribute("aria-label"),
-      title: attribute("title"),
-      connected: target.isConnected !== false,
-    };
-  };
-
-  const transformZoom = (target) => {
-    const style = target && doc.defaultView?.getComputedStyle?.(target);
-    if (!style) return null;
-    return {
-      position: style.position || "",
-      transform: style.transform || "",
-      zoom: style.zoom || "",
-      contain: style.contain || "",
-      willChange: style.willChange || "",
-    };
-  };
-
-  const visualViewportGeometry = () => {
-    const visualViewport = doc.defaultView?.visualViewport;
-    return {
-      width: finiteNumber(visualViewport?.width),
-      height: finiteNumber(visualViewport?.height),
-      offsetLeft: finiteNumber(visualViewport?.offsetLeft),
-      offsetTop: finiteNumber(visualViewport?.offsetTop),
-      scale: finiteNumber(visualViewport?.scale),
-      devicePixelRatio: finiteNumber(doc.defaultView?.devicePixelRatio),
-    };
+    for (const view of state.settingsViews) view.render?.();
   };
 
   const refreshDebugOutputViews = () => {
-    const serialized = JSON.stringify(state.debugGeometryReports, null, 2);
     for (const view of state.settingsViews) {
-      if (view.debugOutput) view.debugOutput.value = serialized;
+      if (view.debugOutput) view.debugOutput.value = JSON.stringify(state.debugGeometryReports, null, 2);
     }
   };
 
-  const recordGeometry = (entry, phase, previousAnchor) => {
-    if (!state.debugGeometry || !entry) return;
-    const composerRegion = findComposerRegion(entry.element);
+  const callNode = async (method, payload = {}) => {
+    if (!node?.invoke) throw new Error("Node 运行时不可用");
+    const response = await node.invoke(method, payload);
+    if (!response || response.status === "failed") {
+      const error = new Error(response?.message || "请求失败");
+      error.code = response?.code || "request_failed";
+      throw error;
+    }
+    return response;
+  };
+
+  const currentComposer = () => findBestComposer(doc);
+
+  const panelAnchorRect = (panelState) => {
+    const contextElement = panelState?.context?.element;
+    if (!contextElement || !contextElement.isConnected) return null;
+    const target = findComposerRegion(contextElement) ?? contextElement;
+    return target.getBoundingClientRect?.() ?? null;
+  };
+
+  const persistAccepted = async ({ original, result, clarifications = [], mode = "direct" }) => {
+    const historyLimit = state.settings.historyLimit;
+    if (historyLimit === 0) return;
+    const historyRecord = {
+      id: makeId("history"),
+      original,
+      result,
+      clarifications,
+      mode,
+      createdAt: new Date().toISOString(),
+    };
+    const response = await callNode("save-settings", { historyRecord });
+    if (response.settings) state.settings = { ...RENDERER_DEFAULTS, ...response.settings };
+    const listed = await callNode("list-history");
+    state.history = Array.isArray(listed.entries) ? listed.entries : [];
+    refreshSettingsViews();
+  };
+
+  const positionComposerButton = (entry, { previousAnchor = null, phase = "position" } = {}) => {
+    if (!entry.button.parentElement || state.disposed) return;
+    const anchorRect = entry.anchor.getBoundingClientRect?.();
+    const buttonRect = entry.button.getBoundingClientRect?.();
+    const menuButtonRect = entry.menuButton?.getBoundingClientRect?.();
+    const totalButtonWidth = (Number(buttonRect?.width) || 68) + (Number(menuButtonRect?.width) || 24);
+    const combinedButtonRect = { width: totalButtonWidth, height: Number(buttonRect?.height) || 28 };
+    const position = getComposerButtonPosition(anchorRect, combinedButtonRect, viewportSize(), 6);
+    if (!position) {
+      entry.button.hidden = true;
+      if (entry.menuButton) entry.menuButton.hidden = true;
+      if (entry.restoreButton) entry.restoreButton.hidden = true;
+      recordGeometry(entry, `position:hidden:${phase}`, previousAnchor);
+      return;
+    }
+
+    const btnW = Number(buttonRect?.width) || 68;
+    entry.button.style.left = `${position.left}px`;
+    entry.button.style.top = `${position.top}px`;
+    entry.button.hidden = false;
+
+    if (entry.menuButton) {
+      entry.menuButton.style.left = `${position.left + btnW}px`;
+      entry.menuButton.style.top = `${position.top}px`;
+      entry.menuButton.hidden = false;
+    }
+
+    if (entry.restoreButton) {
+      const restoreRect = entry.restoreButton.getBoundingClientRect?.();
+      const restoreWidth = Number(restoreRect?.width) || 96;
+      entry.restoreButton.style.left = `${position.left - restoreWidth - 6}px`;
+      entry.restoreButton.style.top = `${position.top}px`;
+      entry.restoreButton.hidden = false;
+    }
+    recordGeometry(entry, `position:placed:${phase}`, previousAnchor);
+  };
+
+  const placeComposerButton = (entry, anchor, { previousAnchor = null, phase = "place" } = {}) => {
+    entry.anchor = anchor;
+    entry.button.style.pointerEvents = "auto";
+    entry.button.style.position = "fixed";
+    entry.button.style.zIndex = "2147482999";
+    composerButtonHost.append(entry.button);
+
+    if (entry.menuButton) {
+      entry.menuButton.style.pointerEvents = "auto";
+      entry.menuButton.style.position = "fixed";
+      entry.menuButton.style.zIndex = "2147482999";
+      composerButtonHost.append(entry.menuButton);
+    }
+    positionComposerButton(entry, { previousAnchor, phase });
+  };
+
+  const updateButton = (entry, busy) => {
+    if (!entry?.button) return;
+    entry.busy = busy;
+    entry.button.dataset.busy = busy ? "true" : "false";
+    entry.button.setAttribute("aria-busy", busy ? "true" : "false");
+    entry.button.replaceChildren(svgIcon(doc, busy ? "cancel" : "spark"), doc.createTextNode(busy ? "取消" : "优化"));
+    entry.button.removeAttribute("title");
+    entry.button.setAttribute("data-ctpo-tooltip", busy ? "取消当前优化请求" : "优化当前提示词");
+  };
+
+  const recordGeometry = (entry, phase = "snapshot", oldAnchor = null) => {
+    if (!state.debugGeometry || !entry?.element) return;
+    const composerRegion = findComposerRegion(entry.element) ?? entry.element;
     const modelPicker = findModelPicker(entry.element);
-    const oldAnchor = previousAnchor === undefined ? entry.anchor : previousAnchor;
     state.debugGeometryReports.push({
       schema: "ctpo-geometry-v1",
-      at: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
       phase,
-      composerRect: geometryRect(composerRegion),
-      composerInputRect: geometryRect(entry.element),
+      composerClass: entry.element.className,
+      composerTag: entry.element.tagName,
+      composerConnected: entry.element.isConnected,
+      anchorConnected: entry.anchor?.isConnected ?? false,
+      anchorClass: entry.anchor?.className,
+      anchorTag: entry.anchor?.tagName,
+      hasModelPicker: Boolean(modelPicker),
+      composerRect: geometryRect(entry.element),
+      composerRegionRect: geometryRect(composerRegion),
       previousAnchorRect: geometryRect(oldAnchor),
-      previousAnchor: geometryIdentity(oldAnchor),
       anchorRect: geometryRect(entry.anchor),
-      anchor: geometryIdentity(entry.anchor),
       modelPickerRect: geometryRect(modelPicker),
-      modelPicker: geometryIdentity(modelPicker),
       buttonRect: geometryRect(entry.button),
-      menuButtonRect: geometryRect(entry.menuButton),
       buttonHostRect: geometryRect(composerButtonHost),
       viewport: {
         ...viewportSize(),
@@ -764,92 +894,62 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         if (state.panel !== panelState) return;
         const position = findPanelPosition({
           anchor: panelAnchorRect(panelState),
-          width: startRect.width,
-          height: startRect.height,
+          width: Number(panelState.layout?.width) || PANEL_DEFAULT_WIDTH,
+          height: Number(panelState.layout?.height) || PANEL_DEFAULT_HEIGHT,
           viewport: viewportSize(),
           preferred: {
-            left: startRect.left + moveEvent.clientX - startX,
-            top: startRect.top + moveEvent.clientY - startY,
+            left: startRect.left + (moveEvent.clientX - startX),
+            top: startRect.top + (moveEvent.clientY - startY),
           },
         });
         panel.style.left = `${position.left}px`;
         panel.style.top = `${position.top}px`;
-        panelState.layout = { ...panelState.layout, ...position, width: startRect.width, height: startRect.height };
+        panelState.layout = { ...panelState.layout, ...position, manual: true };
       };
-      const stopDragging = () => {
+      const onPointerUp = () => {
         header.dataset.dragging = "false";
-        view.removeEventListener("pointermove", onPointerMove, true);
-        view.removeEventListener("pointerup", stopDragging, true);
-        view.removeEventListener("pointercancel", stopDragging, true);
-        if (state.panelDragCleanup === stopDragging) state.panelDragCleanup = null;
+        view.removeEventListener("pointermove", onPointerMove);
+        view.removeEventListener("pointerup", onPointerUp);
+        view.removeEventListener("pointercancel", onPointerUp);
       };
-      state.panelDragCleanup?.();
-      state.panelDragCleanup = stopDragging;
-      view.addEventListener("pointermove", onPointerMove, true);
-      view.addEventListener("pointerup", stopDragging, true);
-      view.addEventListener("pointercancel", stopDragging, true);
+      view.addEventListener("pointermove", onPointerMove);
+      view.addEventListener("pointerup", onPointerUp);
+      view.addEventListener("pointercancel", onPointerUp);
     };
+
     header.addEventListener("pointerdown", onPointerDown);
+    state.panelDragCleanup = () => header.removeEventListener("pointerdown", onPointerDown);
 
-    const contextElement = panelState.context?.element;
-    if (contextElement?.addEventListener) {
-      const syncApplyState = () => {
-        if (state.panel !== panelState) return;
-        const apply = panel.querySelector?.('[data-ctpo-action="apply-preview"]');
-        if (!apply) return;
-        const current = isSameComposerContext(panelState.context, contextElement, currentLocationHref(contextElement), panelState.original);
-        apply.disabled = !current;
-        apply.title = current ? "应用优化结果" : "原 Composer 已变化，请重新优化";
-      };
-      contextElement.addEventListener("input", syncApplyState);
-      state.panelContextCleanup = () => contextElement.removeEventListener("input", syncApplyState);
-      syncApplyState();
-    }
-
-    const ResizeObserverCtor = view.ResizeObserver ?? globalThis.ResizeObserver;
-    if (typeof ResizeObserverCtor === "function") {
-      state.panelResizeObserver = new ResizeObserverCtor(() => {
-        if (state.panel !== panelState) return;
-        const rect = panel.getBoundingClientRect?.();
-        const previousWidth = Number(panelState.layout?.width);
-        if (Number.isFinite(rect?.width) && Number.isFinite(previousWidth) && Math.abs(rect.width - previousWidth) > 0.5) {
-          panelState.layout = { ...panelState.layout, autoWidth: false };
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry || state.panel !== panelState) return;
+        const width = Math.round(entry.contentRect?.width || panel.offsetWidth);
+        const height = Math.round(entry.contentRect?.height || panel.offsetHeight);
+        if (width > 0 && height > 0) {
+          panelState.layout = { ...panelState.layout, width, height };
         }
-        applyPanelGeometry(panel, panelState, { preservePosition: true });
       });
-      state.panelResizeObserver.observe(panel);
+      observer.observe(panel);
+      state.panelResizeObserver = observer;
     }
   };
 
-  function reflowPanel() {
-    const panelState = state.panel;
-    const panel = state.panelHost?.querySelector?.(".ctpo-panel");
-    if (!panelState || !panel || state.disposed) return;
-    if (!panelSessionIsCurrent(panelState)) {
-      closePanel();
-      return;
-    }
-    applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
-  }
-
-  const updateButton = (entry, busy) => {
-    if (!entry?.button) return;
-    entry.busy = busy;
-    entry.button.dataset.busy = busy ? "true" : "false";
-    entry.button.setAttribute("aria-busy", busy ? "true" : "false");
-    entry.button.replaceChildren(svgIcon(doc, busy ? "cancel" : "spark"), doc.createTextNode(busy ? "取消" : "优化"));
-    entry.button.removeAttribute("title");
-    entry.button.setAttribute("data-ctpo-tooltip", busy ? "取消当前优化请求" : "优化当前提示词");
+  const closePanel = () => {
+    clearPanelInteractions();
+    panelHost.replaceChildren();
+    state.panel = null;
   };
 
   const closeComposerMenu = () => {
-    state.composerMenu?.entry?.menuButton?.setAttribute("aria-expanded", "false");
-    state.composerMenu?.element?.remove();
+    if (!state.composerMenu) return;
+    state.composerMenu.entry?.menuButton?.setAttribute("aria-expanded", "false");
+    state.composerMenu.element?.remove();
     state.composerMenu = null;
   };
 
   const openComposerMenu = (entry) => {
-    if (!entry?.button || !state.composerButtonHost) return;
+    if (!entry?.button || !composerButtonHost || state.disposed) return;
     if (state.composerMenu?.entry === entry) {
       closeComposerMenu();
       return;
@@ -861,8 +961,9 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "aria-label": "提示词优化菜单",
     });
 
-    const presets = Array.isArray(state.settings.presets) && state.settings.presets.length
-      ? state.settings.presets
+    const settings = state.settings;
+    const presets = Array.isArray(settings.presets) && settings.presets.length
+      ? settings.presets
       : [
         { id: "general", name: "通用优化" },
         { id: "code", name: "编程开发" },
@@ -871,12 +972,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         { id: "translate", name: "中英转译" },
       ];
 
-    // Section 1: 场景预设
     const presetLabel = element(doc, "div", { className: "ctpo-menu-section-label" }, ["场景预设"]);
     const presetSection = element(doc, "div", { className: "ctpo-menu-presets" }, [presetLabel]);
-    
+
     for (const p of presets) {
-      const isSelected = (state.settings.activePresetId || "general") === p.id;
+      const isSelected = (settings.activePresetId || "general") === p.id;
       const checkIcon = isSelected ? svgIcon(doc, "check") : element(doc, "span", { style: "display:inline-block;width:13px;" });
       const btn = element(doc, "button", {
         type: "button",
@@ -893,8 +993,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         try {
           const res = await callNode("select-preset", { presetId: p.id });
           state.settings = { ...state.settings, ...res.settings };
-          showToast(`已切换为【${p.name}】场景预设`, "success");
-          refreshSettingsViews();
+          showToast(`已切换到【${p.name}】场景预设`, "success");
         } catch (e) {
           showToast(e.message, "error");
         }
@@ -903,7 +1002,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
     menu.append(presetSection);
 
-    // Section 2: 快捷操作
     const actionLabel = element(doc, "div", { className: "ctpo-menu-section-label" }, ["快捷操作"]);
     const actionSection = element(doc, "div", { style: "display:flex;flex-direction:column;gap:2px;" }, [actionLabel]);
 
@@ -936,7 +1034,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     actionSection.append(settingsBtn, historyBtn);
     menu.append(actionSection);
 
-    state.composerButtonHost.append(menu);
+    composerButtonHost.append(menu);
 
     const triggerRect = entry.button.getBoundingClientRect?.();
     const menuRect = menu.getBoundingClientRect?.();
@@ -960,7 +1058,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const ensureRestoreButton = (entry, snapshot) => {
-    if (!entry?.button || !state.composerButtonHost || !snapshot) return;
+    if (!entry?.button || !composerButtonHost || !snapshot) return;
     if (state.latestRestoreEntry && state.latestRestoreEntry !== entry) {
       state.latestRestoreEntry.restoreButton?.remove();
       state.latestRestoreEntry.restoreButton = null;
@@ -986,7 +1084,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       restore.style.pointerEvents = "auto";
       restore.style.position = "fixed";
       restore.style.zIndex = "2147482999";
-      state.composerButtonHost.append(restore);
+      composerButtonHost.append(restore);
       entry.restoreButton = restore;
       positionComposerButton(entry);
     }
@@ -1009,12 +1107,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       notice: fromHistory ? "历史记录只会在你明确应用或复制时写入当前 Composer。" : "",
     };
     renderPanel();
-  };
-
-  const recordPending = (context, result) => {
-    state.pendingResults.set(context.key, { context, result });
-    if (state.pendingResults.size > 20) state.pendingResults.delete(state.pendingResults.keys().next().value);
-    showToast("原 Composer 已变化，结果未自动写入。请回到原上下文后重新操作。", "error");
   };
 
   const startOptimization = async (entry) => {
@@ -1048,14 +1140,14 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           original,
           context,
           locationHref: documentHref(),
-          layout: createPanelLayout(),
-          answers: [],
-          questions: [],
+          layout: createPanelLayout(state.panel?.layout ?? {}),
           round: 1,
+          questions: [],
+          answers: [],
           ready: false,
           busy: true,
-          operationId: null,
-          operationMethod: null,
+          operationId: operation.id,
+          operationMethod: "clarify-round",
           notice: "",
         };
         renderPanel();
@@ -1063,139 +1155,378 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         return;
       }
 
-      const useStreaming = state.settings.streaming !== false;
-      if (useStreaming) {
-        state.panel = {
-          kind: "preview",
+      if (state.settings.mode === "preview") {
+        const useStreaming = state.settings.streaming !== false;
+        showPreview({
           original,
           result: "",
           clarifications: [],
-          mode: state.settings.mode,
+          mode: "preview",
           context,
-          fromHistory: false,
-          isStreaming: true,
-          viewTab: "edit",
-          locationHref: documentHref(),
-          layout: createPanelLayout(),
+          isStreaming: useStreaming,
+        });
+        if (state.panel) {
+          state.panel.operationId = operation.id;
+          state.panel.operationMethod = "optimize";
+        }
+        const response = await callNode("optimize", {
           operationId: operation.id,
-          operationMethod: "optimize",
-          notice: "",
-        };
-        renderPanel();
-      }
-
-      const response = await callNode("optimize", { operationId: operation.id, text: original, stream: useStreaming });
-      const result = String(response.result ?? "").trim();
-      if (state.panel && state.panel.operationId === operation.id) {
-        state.panel.result = result;
-        state.panel.isStreaming = false;
-      }
-
-      if (!isSameComposerContext(context, entry.element, currentLocationHref(entry.element), original)) {
-        recordPending(context, result);
+          text: original,
+          stream: useStreaming,
+        });
+        const finalResult = String(response.result ?? "").trim();
+        showPreview({
+          original,
+          result: finalResult,
+          clarifications: [],
+          mode: "preview",
+          context,
+          isStreaming: false,
+        });
         return;
       }
 
-      if (state.settings.mode === "direct" && !useStreaming) {
-        replaceInputText(entry.element, result);
-        const snapshot = { context, original, result, createdAt: new Date().toISOString() };
-        ensureRestoreButton(entry, snapshot);
-        try {
-          await persistAccepted({ original, result, mode: "direct" });
-          showToast("提示词已优化并替换；可用“恢复原文”撤销本次写回。", "success");
-        } catch (error) {
-          showToast(`提示词已写回，但历史保存失败：${error.message}`, "error");
-        }
-      } else if (!useStreaming) {
-        showPreview({ original, result, mode: "preview", context });
+      // Direct Mode
+      const response = await callNode("optimize", { operationId: operation.id, text: original });
+      const result = String(response.result ?? "").trim();
+      const currentContext = captureComposerContext(entry.element, currentLocationHref(entry.element));
+      if (!isSameComposerContext(context, entry.element, currentContext.href, original)) {
+        state.pendingResults.set(context.key, { context, result });
+        if (state.pendingResults.size > 20) state.pendingResults.delete(state.pendingResults.keys().next().value);
+        showToast("原 Composer 已变化，结果未自动写入。请回到原上下文后重新操作。", "error");
+        return;
+      }
+      replaceInputText(entry.element, result);
+      ensureRestoreButton(entry, { context, original, result });
+      try {
+        await persistAccepted({ original, result, mode: "direct" });
+        showToast("提示词优化完成。", "success");
+      } catch (error) {
+        showToast(`优化完成，但历史保存失败：${error.message}`, "error");
       }
     } catch (error) {
-      if (error.code !== "cancelled") showToast(error.message, "error");
-      if (state.panel && state.panel.operationId === operation.id) {
-        closePanel();
+      if (error.code !== "cancelled") {
+        showToast(error.message, "error");
       }
     } finally {
+      updateButton(entry, false);
       state.activeOperations.delete(operation.id);
-      if (entry.operation?.id === operation.id) {
-        entry.operation = null;
-        updateButton(entry, false);
+      entry.operation = null;
+    }
+  };
+
+  const renderPanel = () => {
+    clearPanelInteractions();
+    panelHost.replaceChildren();
+    const panelState = state.panel;
+    if (!panelState || state.disposed) return;
+
+    const panel = element(doc, "section", {
+      className: "ctpo-panel",
+      role: "dialog",
+      "aria-modal": "false",
+      "aria-labelledby": "ctpo-panel-title",
+      "data-ctpo-panel": "true",
+    });
+    const close = element(doc, "button", {
+      type: "button",
+      className: "ctpo-panel-close",
+      "aria-label": "关闭面板",
+      "data-ctpo-tooltip": "关闭面板 (Esc)",
+    }, [svgIcon(doc, "close")]);
+    close.addEventListener("click", closePanel);
+
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePanel();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        const applyBtn = panel.querySelector('[data-ctpo-action="apply-preview"]');
+        if (applyBtn && !applyBtn.disabled) {
+          event.preventDefault();
+          applyBtn.click();
+        }
+      }
+    });
+
+    let tabGroup = null;
+    if (panelState.kind === "preview") {
+      tabGroup = element(doc, "div", { className: "ctpo-tab-group" });
+      const tabs = [
+        { id: "edit", label: "编辑" },
+        { id: "markdown", label: "Markdown" },
+        { id: "diff", label: "对比 (Diff)" },
+      ];
+      for (const t of tabs) {
+        const tabBtn = element(doc, "button", {
+          type: "button",
+          className: "ctpo-tab-btn",
+          "data-active": (panelState.viewTab || "edit") === t.id ? "true" : "false",
+        }, [t.label]);
+        tabBtn.addEventListener("click", () => {
+          panelState.viewTab = t.id;
+          renderPanel();
+        });
+        tabGroup.append(tabBtn);
       }
     }
+
+    const titleEl = element(doc, "h2", { id: "ctpo-panel-title" }, [
+      panelState.kind === "clarify" ? "澄清提示词" : "优化结果",
+      panelState.isStreaming ? element(doc, "span", { className: "ctpo-streaming-tag", style: "margin-left: 8px;" }, ["⚡ 生成中..."]) : null,
+    ]);
+
+    const header = element(doc, "div", {
+      className: "ctpo-panel-header",
+      "data-ctpo-drag-handle": "true",
+      tabindex: "0",
+      "aria-label": "拖动预览窗口",
+    }, [
+      titleEl,
+      tabGroup || element(doc, "span"),
+      close,
+    ]);
+
+    const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-${panelState.kind}` });
+    const actions = element(doc, "div", { className: "ctpo-actions ctpo-panel-actions" });
+    panel.append(header, content, actions);
+
+    if (panelState.kind === "preview") {
+      renderPreviewContent(content, actions, panelState);
+    } else {
+      renderClarifyContent(content, actions, panelState);
+    }
+
+    panelHost.append(panel);
+    applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
+    installPanelInteractions(panel, panelState);
+    const firstInput = panel.querySelector("textarea, input, button");
+    firstInput?.focus?.();
   };
 
-  const positionComposerButton = (entry, options = {}) => {
-    const previousAnchor = Object.prototype.hasOwnProperty.call(options, "previousAnchor") ? options.previousAnchor : entry.anchor;
-    const phase = options.phase || "position";
-    const anchorRect = entry.anchor?.getBoundingClientRect?.();
-    if (!anchorRect || !state.composerButtonHost) {
-      entry.button.hidden = true;
-      if (entry.menuButton) entry.menuButton.hidden = true;
-      if (entry.restoreButton) entry.restoreButton.hidden = true;
-      recordGeometry(entry, `${phase}:hidden-no-anchor`, previousAnchor);
-      return false;
-    }
-    const buttonRect = entry.button.getBoundingClientRect?.() ?? {};
-    const menuRect = entry.menuButton?.getBoundingClientRect?.() ?? {};
-    const buttonWidth = Number(buttonRect.width) || 0;
-    const menuWidth = Number(menuRect.width) || 0;
-    const groupWidth = buttonWidth + (menuWidth > 0 ? menuWidth + 2 : 0);
-    const position = getComposerButtonPosition(anchorRect, {
-      width: groupWidth,
-      height: Math.max(Number(buttonRect.height) || 0, Number(menuRect.height) || 0),
-    }, viewportSize());
-    if (!position) {
-      entry.button.hidden = true;
-      if (entry.menuButton) entry.menuButton.hidden = true;
-      if (entry.restoreButton) entry.restoreButton.hidden = true;
-      recordGeometry(entry, `${phase}:hidden-invalid-position`, previousAnchor);
-      return false;
+  const renderPreviewContent = (panel, actions, panelState) => {
+    panel.append(element(doc, "p", { className: "ctpo-hint" }, [
+      panelState.fromHistory
+        ? "这是历史记录预览，不会自动覆盖当前 Composer。"
+        : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
+    ]));
+
+    panel.append(element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
+    panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
+
+    const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
+    panel.append(resultLabel);
+
+    const viewTab = panelState.viewTab || "edit";
+    if (viewTab === "markdown") {
+      const md = renderSimpleMarkdown(doc, panelState.result);
+      md.classList.add("ctpo-panel-result");
+      panel.append(md);
+    } else if (viewTab === "diff") {
+      const diff = renderSimpleDiff(doc, panelState.original, panelState.result);
+      diff.classList.add("ctpo-panel-result");
+      panel.append(diff);
+    } else {
+      const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
+      result.addEventListener("input", () => { panelState.result = result.value; });
+      panel.append(result);
     }
 
-    const last = entry.lastPos;
-    if (last && Math.abs(last.left - position.left) < 0.5 && Math.abs(last.top - position.top) < 0.5 && !entry.button.hidden) {
-      return true;
+    const contextCurrent = panelState.context
+      ? isSameComposerContext(panelState.context, panelState.context.element, currentLocationHref(panelState.context.element), panelState.original)
+      : true;
+    if (panelState.context && !contextCurrent) {
+      panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, ["原 Composer 已变化。为避免覆盖新内容，应用按钮已停用。"]));
     }
-    entry.lastPos = position;
+    if (panelState.notice) {
+      panel.append(element(doc, "div", { className: "ctpo-status" }, [panelState.notice]));
+    }
 
-    entry.button.style.pointerEvents = "auto";
-    entry.button.style.position = "fixed";
-    entry.button.style.zIndex = "2147482999";
-    entry.button.hidden = false;
-    entry.button.style.left = `${position.left}px`;
-    entry.button.style.top = `${position.top}px`;
-    if (entry.menuButton) {
-      entry.menuButton.style.pointerEvents = "auto";
-      entry.menuButton.style.position = "fixed";
-      entry.menuButton.style.zIndex = "2147482999";
-      entry.menuButton.hidden = false;
-      entry.menuButton.style.left = `${position.left + buttonWidth + 2}px`;
-      entry.menuButton.style.top = `${position.top}px`;
+    if (panelState.isStreaming) {
+      const stopBtn = actionButton(doc, "停止生成", "stop-stream", { icon: "cancel", kind: "danger" });
+      stopBtn.addEventListener("click", () => {
+        if (panelState.operationId && panelState.operationMethod) {
+          node?.invoke?.(panelState.operationMethod, { operationId: panelState.operationId, cancel: true }).catch?.(() => {});
+        }
+        panelState.isStreaming = false;
+        renderPanel();
+      });
+      actions.append(stopBtn);
     }
-    if (entry.restoreButton) {
-      entry.restoreButton.style.pointerEvents = "auto";
-      entry.restoreButton.style.position = "fixed";
-      entry.restoreButton.style.zIndex = "2147482999";
-      entry.restoreButton.hidden = false;
-      entry.restoreButton.style.left = `${position.left + groupWidth + 4}px`;
-      entry.restoreButton.style.top = `${position.top}px`;
-    }
-    recordGeometry(entry, phase, previousAnchor);
-    return true;
+
+    const apply = actionButton(doc, "应用结果", "apply-preview", { icon: "check", kind: "primary", disabled: Boolean(panelState.context && !contextCurrent) });
+    apply.addEventListener("click", async () => {
+      let target = panelState.context?.element;
+      if (panelState.context) {
+        if (!isSameComposerContext(panelState.context, target, currentLocationHref(target), panelState.original)) {
+          renderPanel();
+          return;
+        }
+      } else {
+        target = currentComposer();
+        if (!target) {
+          panelState.notice = "当前页面没有可用的 Composer。";
+          renderPanel();
+          return;
+        }
+      }
+      replaceInputText(target, panelState.result);
+      try {
+        await persistAccepted({ original: panelState.original, result: panelState.result, clarifications: panelState.clarifications, mode: panelState.mode });
+        closePanel();
+        showToast("已应用优化结果。", "success");
+      } catch (error) {
+        panelState.notice = `结果已应用，但历史保存失败：${error.message}`;
+        renderPanel();
+      }
+    });
+
+    const copy = actionButton(doc, "复制结果", "copy-preview", { icon: "copy" });
+    copy.addEventListener("click", async () => {
+      try {
+        await copyText(panelState.result);
+        await persistAccepted({ original: panelState.original, result: panelState.result, clarifications: panelState.clarifications, mode: panelState.mode });
+        panelState.notice = "已复制，并已按明确接受动作保存历史。";
+        renderPanel();
+      } catch (error) {
+        panelState.notice = error.message;
+        renderPanel();
+      }
+    });
+
+    actions.append(apply, copy, actionButton(doc, "取消", "cancel-preview", { icon: "cancel" }));
+    actions.querySelector('[data-ctpo-action="cancel-preview"]').addEventListener("click", closePanel);
   };
 
-  const placeComposerButton = (entry, anchor, options = {}) => {
-    if (!anchor?.parentElement || !state.composerButtonHost) return false;
-    if (entry.button.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.button);
-    if (entry.menuButton?.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.menuButton);
-    if (entry.restoreButton && entry.restoreButton.parentElement !== state.composerButtonHost) state.composerButtonHost.append(entry.restoreButton);
-    entry.anchor = anchor;
-    return positionComposerButton(entry, options);
+  const renderClarifyContent = (panel, actions, panelState) => {
+    panel.append(element(doc, "p", { className: "ctpo-hint" }, [`最多 3 轮，每轮最多 3 个问题。当前第 ${panelState.round} 轮；留空或跳过都可以。`]));
+    panel.append(element(doc, "label", { className: "ctpo-label" }, ["原始提示词"]));
+    panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
+    if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, [panelState.notice]));
+    if (panelState.busy) {
+      panel.append(element(doc, "div", { className: "ctpo-status" }, ["正在判断是否需要澄清……"]));
+    } else if (panelState.questions.length) {
+      const questions = element(doc, "div", { className: "ctpo-question-list" });
+      panelState.questions.forEach((question, index) => {
+        const input = element(doc, "textarea", { "data-ctpo-question-index": index, "aria-label": `澄清问题 ${index + 1}`, placeholder: "可留空或跳过" });
+        questions.append(element(doc, "div", { className: "ctpo-question" }, [element(doc, "p", {}, [`${index + 1}. ${question}`]), input]));
+      });
+      panel.append(questions);
+    } else if (panelState.ready) {
+      panel.append(element(doc, "div", { className: "ctpo-status", "data-kind": "success" }, ["模型判断信息已足够。点击“生成预览”继续。"]));
+    }
+    if (!panelState.busy && panelState.questions.length) {
+      const submitLabel = panelState.round >= 3 ? "提交回答并生成预览" : "提交回答";
+      const submit = actionButton(doc, submitLabel, "submit-clarify", { icon: "check", kind: "primary" });
+      submit.addEventListener("click", () => submitClarification(panelState));
+      actions.append(submit);
+      const skip = actionButton(doc, "跳过并生成预览", "skip-clarify", { icon: "cancel" });
+      skip.addEventListener("click", () => generateClarifyResult(panelState));
+      actions.append(skip);
+    }
+    if (!panelState.busy && (panelState.ready || panelState.round >= 3)) {
+      const generate = actionButton(doc, "生成预览", "generate-clarify", { icon: "spark", kind: "primary" });
+      generate.addEventListener("click", () => generateClarifyResult(panelState));
+      actions.append(generate);
+    }
+    const cancel = actionButton(doc, "取消", "cancel-clarify", { icon: "cancel" });
+    cancel.addEventListener("click", closePanel);
+    actions.append(cancel);
+  };
+
+  const runClarifyRound = async (panelState) => {
+    if (state.disposed || state.panel !== panelState) return;
+    const operationId = makeId("clarify");
+    panelState.operationId = operationId;
+    panelState.operationMethod = "clarify-round";
+    panelState.busy = true;
+    state.activeOperations.set(operationId, { id: operationId, method: "clarify-round", context: panelState.context });
+    renderPanel();
+    try {
+      const response = await callNode("clarify-round", {
+        operationId,
+        text: panelState.original,
+        round: panelState.round,
+        clarifications: panelState.answers,
+      });
+      if (state.panel !== panelState) return;
+      panelState.questions = Array.isArray(response.questions) ? response.questions.slice(0, 3) : [];
+      panelState.ready = response.readyToGenerate === true;
+      panelState.busy = false;
+      panelState.operationId = null;
+      panelState.operationMethod = null;
+      renderPanel();
+    } catch (error) {
+      if (state.panel !== panelState) return;
+      panelState.busy = false;
+      panelState.operationId = null;
+      panelState.operationMethod = null;
+      if (error.code !== "cancelled") panelState.notice = error.message;
+      renderPanel();
+    } finally {
+      state.activeOperations.delete(operationId);
+    }
+  };
+
+  const collectClarificationAnswers = (panelState) => {
+    return [...panelHost.querySelectorAll("[data-ctpo-question-index]")].map((input, index) => ({
+      question: panelState.questions[index] ?? "",
+      answer: input.value ?? "",
+    }));
+  };
+
+  const submitClarification = async (panelState) => {
+    if (state.panel !== panelState || panelState.busy) return;
+    panelState.answers.push(...collectClarificationAnswers(panelState));
+    if (panelState.round >= 3) {
+      await generateClarifyResult(panelState);
+      return;
+    }
+    panelState.round += 1;
+    panelState.questions = [];
+    panelState.ready = false;
+    await runClarifyRound(panelState);
+  };
+
+  const generateClarifyResult = async (panelState) => {
+    if (state.panel !== panelState || panelState.busy) return;
+    panelState.answers.push(...collectClarificationAnswers(panelState));
+    panelState.busy = true;
+    const operationId = makeId("clarify-final");
+    panelState.operationId = operationId;
+    panelState.operationMethod = "optimize";
+    state.activeOperations.set(operationId, { id: operationId, method: "optimize", context: panelState.context });
+    renderPanel();
+    try {
+      const response = await callNode("optimize", {
+        operationId,
+        text: panelState.original,
+        clarifications: panelState.answers,
+      });
+      if (state.panel !== panelState) return;
+      showPreview({
+        original: panelState.original,
+        result: String(response.result ?? "").trim(),
+        clarifications: panelState.answers,
+        mode: "clarify",
+        context: panelState.context,
+        layout: panelState.layout,
+      });
+    } catch (error) {
+      if (state.panel !== panelState) return;
+      panelState.busy = false;
+      panelState.operationId = null;
+      panelState.operationMethod = null;
+      if (error.code !== "cancelled") panelState.notice = error.message;
+      renderPanel();
+    }
   };
 
   const attachComposer = (composer) => {
     if (state.attached.has(composer) || composer.closest?.(`[${ROOT_ATTRIBUTE}]`)) return;
     const anchor = findComposerActionAnchor(composer);
     if (!anchor?.parentElement) return;
+
     const button = element(doc, "button", {
       type: "button",
       className: BUTTON_CLASS,
@@ -1204,6 +1535,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "data-codex-tweaks-prompt-optimizer": "button",
       hidden: true,
     }, [svgIcon(doc, "spark"), "优化"]);
+
     const menuButton = element(doc, "button", {
       type: "button",
       className: "ct-prompt-optimizer-menu-button",
@@ -1213,6 +1545,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       "data-ctpo-tooltip": "提示词优化菜单",
       hidden: true,
     }, [svgIcon(doc, "chevron")]);
+
     const entry = { element: composer, anchor, button, menuButton, restoreButton: null, operation: null, busy: false, lastPos: null };
     entry.debugPasteListener = () => {
       recordGeometry(entry, "paste-event", entry.anchor);
@@ -1226,30 +1559,37 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     composer.addEventListener?.("input", entry.debugInputListener);
     button.addEventListener("click", () => startOptimization(entry));
     menuButton.addEventListener("click", () => openComposerMenu(entry));
+
     placeComposerButton(entry, anchor, { previousAnchor: null, phase: "attach" });
     state.attached.set(composer, entry);
   };
 
   const detachComposer = (entry) => {
-    if (state.composerMenu?.entry === entry) closeComposerMenu();
-    entry.element?.removeEventListener?.("paste", entry.debugPasteListener);
-    entry.element?.removeEventListener?.("input", entry.debugInputListener);
-    entry.button?.remove();
+    entry.element.removeEventListener?.("paste", entry.debugPasteListener);
+    entry.element.removeEventListener?.("input", entry.debugInputListener);
+    entry.button.remove();
     entry.menuButton?.remove();
     entry.restoreButton?.remove();
+    if (state.latestRestoreEntry === entry) {
+      state.latestRestoreEntry = null;
+      state.latestSnapshot = null;
+    }
+    if (state.composerMenu?.entry === entry) closeComposerMenu();
     state.attached.delete(entry.element);
   };
 
   const scanComposers = () => {
-    state.scanTimer = null;
-    if (state.disposed || !state.ready || !state.settings.enabled || !node) {
-      closePanel();
-      for (const entry of state.attached.values()) detachComposer(entry);
+    if (state.disposed) return;
+    if (!state.settings.enabled) {
+      for (const entry of state.attached.values()) {
+        entry.button.hidden = true;
+        if (entry.menuButton) entry.menuButton.hidden = true;
+        if (entry.restoreButton) entry.restoreButton.hidden = true;
+      }
       return;
     }
-    if (state.panel && !panelSessionIsCurrent(state.panel)) closePanel();
     for (const entry of [...state.attached.values()]) {
-      if (!entry.element.isConnected || !entry.button.isConnected) detachComposer(entry);
+      if (!entry.element.isConnected) detachComposer(entry);
       else {
         const previousAnchor = entry.anchor;
         const nextAnchor = findComposerActionAnchor(entry.element, entry.anchor);
@@ -1318,91 +1658,11 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     }
   };
 
-  function showModalDialog({ title, message = "", inputPlaceholder = "", initialValue = "", showInput = false, confirmText = "确定", cancelText = "取消", isDanger = false, onConfirm }) {
-    const existing = doc.querySelector(".ctpo-modal-overlay");
-    if (existing) existing.remove();
-
-    const overlay = element(doc, "div", { className: "ctpo-modal-overlay" });
-    overlay.setAttribute(ROOT_ATTRIBUTE, "");
-    const modal = element(doc, "div", { className: "ctpo-modal-dialog", role: "dialog", "aria-modal": "true" });
-    
-    const titleEl = element(doc, "h3", { className: "ctpo-modal-title" }, [title]);
-    modal.append(titleEl);
-    
-    if (message) {
-      modal.append(element(doc, "p", { className: "ctpo-modal-message" }, [message]));
-    }
-    
-    let inputEl = null;
-    if (showInput) {
-      inputEl = element(doc, "input", {
-        type: "text",
-        className: "ctpo-modal-input",
-        placeholder: inputPlaceholder,
-        value: initialValue,
-      });
-      modal.append(inputEl);
-    }
-    
-    const actions = element(doc, "div", { className: "ctpo-actions ctpo-modal-actions" });
-    const confirmBtn = actionButton(doc, confirmText, "modal-confirm", {
-      icon: "check",
-      kind: isDanger ? "danger" : "primary",
-    });
-    const cancelBtn = actionButton(doc, cancelText, "modal-cancel", { icon: "cancel" });
-    
-    const close = () => {
-      overlay.remove();
-      doc.removeEventListener("keydown", onKeyDown);
-    };
-    
-    const submit = async () => {
-      const value = inputEl ? inputEl.value.trim() : "";
-      if (showInput && !value) {
-        inputEl.focus();
-        return;
-      }
-      close();
-      if (typeof onConfirm === "function") {
-        await onConfirm(value);
-      }
-    };
-    
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      } else if (e.key === "Enter" && (!inputEl || doc.activeElement === inputEl)) {
-        e.preventDefault();
-        submit();
-      }
-    };
-    
-    confirmBtn.addEventListener("click", submit);
-    cancelBtn.addEventListener("click", close);
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) close();
-    });
-    
-    actions.append(confirmBtn, cancelBtn);
-    modal.append(actions);
-    overlay.append(modal);
-    doc.body.append(overlay);
-    doc.addEventListener("keydown", onKeyDown);
-    
-    if (inputEl) {
-      inputEl.focus();
-      inputEl.select();
-    } else {
-      confirmBtn.focus();
-    }
-  }
-
   const renderHistory = (view, listContainer, searchQuery = "") => {
     listContainer.replaceChildren();
     if (!view.selectedHistoryIds) view.selectedHistoryIds = new Set();
 
-    // Auto-sort history: Pinned/Favorited items first (newest to oldest), then unpinned (newest to oldest)
+    // Auto-sort history: Pinned items first (newest to oldest), then unpinned (newest to oldest)
     state.history.sort((a, b) => {
       const aPin = Boolean(a?.isPinned);
       const bPin = Boolean(b?.isPinned);
@@ -1466,6 +1726,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const batchDeleteBtn = actionButton(doc, "批量删除", "batch-delete-history", { icon: "trash", kind: "danger", title: "删除所有选中的记录" });
       batchDeleteBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "批量删除历史记录",
           message: `确认删除选中的 ${selectedCount} 条优化历史记录吗？该操作不可撤销。`,
           confirmText: "确认删除",
@@ -1508,7 +1769,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         renderHistory(view, listContainer, searchQuery);
       });
 
-      // Hover Tooltip Card with rich previews
       const hoverCard = element(doc, "div", { className: "ctpo-history-hover-card" }, [
         element(doc, "div", { className: "ctpo-history-hover-title" }, ["📝 原始提示词："]),
         element(doc, "div", { className: "ctpo-history-hover-text" }, [entry.original]),
@@ -1561,6 +1821,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         showModalDialog({
+          doc,
           title: "删除历史记录",
           message: "确认删除此条优化历史记录吗？该操作不可撤销。",
           confirmText: "确认删除",
@@ -1593,7 +1854,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         actions,
       ]);
 
-      // Click on text to toggle expand/collapse
       preview.addEventListener("click", (e) => {
         if (e.target === check) return;
         itemEl.setAttribute("data-expanded", itemEl.getAttribute("data-expanded") === "true" ? "false" : "true");
@@ -1618,6 +1878,8 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       busy: false,
       debugOutput: null,
       historySearch: "",
+      selectedHistoryIds: new Set(),
+      searchTimer: null,
       render: null,
     };
     const setInlineNotice = (text, kind = "") => {
@@ -1703,6 +1965,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const addProfileBtn = actionButton(doc, "+ 新增档案", "add-profile", { icon: "spark", title: "添加新模型 Provider 档案" });
       addProfileBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "新增 Provider 档案",
           message: "请输入新配置档案的名称（例如：DeepSeek、Claude、本地 Ollama 等）：",
           showInput: true,
@@ -1713,7 +1976,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
             if (!name) return;
             const newProf = {
               id: `profile-${Date.now()}`,
-              name: name,
+              name,
               protocol: "openaiResponses",
               baseUrl: "",
               apiKey: "",
@@ -1740,6 +2003,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const renameProfileBtn = actionButton(doc, "重命名", "rename-profile", { icon: "edit", title: "重命名当前选中的档案" });
       renameProfileBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "重命名配置档案",
           message: `修改档案【${currentProfile.name}】的名称：`,
           showInput: true,
@@ -1770,6 +2034,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           return;
         }
         showModalDialog({
+          doc,
           title: "删除配置档案",
           message: `确认删除当前配置档案【${currentProfile.name}】吗？该操作不可撤销。`,
           confirmText: "确认删除",
@@ -1794,7 +2059,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       profileLine.append(profileSelect, addProfileBtn, renameProfileBtn, delProfileBtn);
       profileCard.append(profileLine);
 
-      // Card 3: 当前档案 API 设置 (含保存配置、清除 Key、测试连接)
+      // Card 3: 当前档案 API 设置
       const providerCard = element(doc, "section", { className: "ctpo-card", "aria-labelledby": `${view.id}-provider` });
       providerCard.append(element(doc, "h2", { id: `${view.id}-provider` }, [`当前档案 API 设置（${currentProfile.name || "当前配置"}）`]));
       const grid = element(doc, "div", { className: "ctpo-grid" });
@@ -1871,7 +2136,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       grid.append(modelField);
       providerCard.append(grid);
 
-      // API Settings 操作按钮：保存配置、清除 Key、测试连接
+      // API Settings 操作按钮
       const apiActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 14px; border-top: 1px solid var(--ctpo-border); padding-top: 12px;" });
       const save = actionButton(doc, "保存配置", "save-settings", { icon: "check", kind: "primary" });
       save.addEventListener("click", async () => {
@@ -1962,6 +2227,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const addPresetBtn = actionButton(doc, "+ 新增预设", "add-preset", { icon: "spark", title: "添加自定义场景预设" });
       addPresetBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "新增场景预设",
           message: "请输入新预设的名称（例如：SQL 调优、UI 设计、文案润色 等）：",
           showInput: true,
@@ -1972,7 +2238,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
             if (!name) return;
             const newPreset = {
               id: `preset-${Date.now()}`,
-              name: name,
+              name,
               instruction: state.settings.instruction || RENDERER_DEFAULTS.instruction,
             };
             setViewBusy(view, true);
@@ -1994,6 +2260,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const renamePresetBtn = actionButton(doc, "重命名", "rename-preset", { icon: "edit", title: "重命名当前选中的场景预设" });
       renamePresetBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "重命名场景预设",
           message: `修改预设【${currentPreset.name}】的名称：`,
           showInput: true,
@@ -2024,6 +2291,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           return;
         }
         showModalDialog({
+          doc,
           title: "删除场景预设",
           message: `确认删除场景预设【${currentPreset.name}】吗？该操作不可撤销。`,
           confirmText: "确认删除",
@@ -2112,7 +2380,10 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const historyList = element(doc, "ul", { className: "ctpo-history-list" });
       historySearch.addEventListener("input", () => {
         view.historySearch = historySearch.value;
-        renderHistory(view, historyList, view.historySearch);
+        if (view.searchTimer) clearTimeout(view.searchTimer);
+        view.searchTimer = setTimeout(() => {
+          renderHistory(view, historyList, view.historySearch);
+        }, 150);
       });
       historyCard.append(historySearch);
       renderHistory(view, historyList, view.historySearch);
@@ -2121,6 +2392,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const clearAllHistoryBtn = actionButton(doc, "清空所有历史", "clear-all-history", { icon: "trash", kind: "danger", title: "清空所有未置顶及已保存的历史记录" });
       clearAllHistoryBtn.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "清空优化历史",
           message: "确认清空所有提示词优化历史记录吗？",
           confirmText: "确认清空",
@@ -2140,7 +2412,6 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const historyBottomActions = element(doc, "div", { className: "ctpo-actions", style: "margin-top: 10px;" }, [clearAllHistoryBtn]);
       historyCard.append(historyBottomActions);
 
-      // Card 6: 临时定位诊断
       // Card 6: 临时定位诊断
       const debugCard = element(doc, "section", {
         className: "ctpo-card",
@@ -2227,6 +2498,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       const cleanupButton = actionButton(doc, "清理包数据", "clear-history", { icon: "trash", kind: "danger" });
       cleanupButton.addEventListener("click", () => {
         showModalDialog({
+          doc,
           title: "清理所有包数据",
           message: "清除 API Key、历史记录和已保存 Provider 配置？建议在卸载前执行。",
           confirmText: "确认清理",
@@ -2263,7 +2535,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
       wrapper.append(generalCard, profileCard, providerCard, presetCard, historyCard, debugCard, cleanupCard);
 
-      const status = element(doc, "div", { className: "ctpo-status", role: "status", "aria-live": "polite" }, [state.notice.text || (node ? "" : "Node 权限尚未授权。")]);
+      const status = element(doc, "div", { className: "ctpo-status", role: "status", "aria-live": "polite" }, [state.notice.text]);
       status.dataset.kind = state.notice.kind;
       view.status = status;
       wrapper.append(status);
@@ -2279,383 +2551,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     };
   };
 
-
-
-  function setViewBusy(view, busy) {
-    view.busy = busy;
-    if (!view.container) return;
-    for (const control of view.container.querySelectorAll?.("button, input, select, textarea") ?? []) {
-      control.disabled = busy;
-    }
-  }
-
-  function field(doc, labelText, control, hintText, hintId) {
-    const label = element(doc, "label", { className: "ctpo-field" });
-    const labelNode = element(doc, "span", { className: "ctpo-label" }, [labelText]);
-    label.append(labelNode, control);
-    if (hintText) label.append(element(doc, "span", { className: "ctpo-hint", id: hintId }, [hintText]));
-    return label;
-  }
-
-  function renderPanel() {
-    clearPanelInteractions();
-    state.panelHost.replaceChildren();
-    const panelState = state.panel;
-    if (!panelState || state.disposed) return;
-
-    const panel = element(doc, "section", { className: "ctpo-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "ctpo-panel-title", "data-ctpo-panel": "true" });
-    const close = element(doc, "button", { type: "button", className: "ctpo-panel-close", "aria-label": "关闭面板", "data-ctpo-tooltip": "关闭面板 (Esc)" }, [svgIcon(doc, "close")]);
-    close.addEventListener("click", closePanel);
-
-    panel.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closePanel();
-      } else if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-        const applyBtn = panel.querySelector('[data-ctpo-action="apply-preview"]');
-        if (applyBtn && !applyBtn.disabled) {
-          event.preventDefault();
-          applyBtn.click();
-        }
-      }
-    });
-
-    let tabGroup = null;
-    if (panelState.kind === "preview") {
-      tabGroup = element(doc, "div", { className: "ctpo-tab-group" });
-      const tabs = [
-        { id: "edit", label: "编辑" },
-        { id: "markdown", label: "Markdown" },
-        { id: "diff", label: "对比 (Diff)" },
-      ];
-      for (const t of tabs) {
-        const tabBtn = element(doc, "button", {
-          type: "button",
-          className: "ctpo-tab-btn",
-          "data-active": (panelState.viewTab || "edit") === t.id ? "true" : "false",
-        }, [t.label]);
-        tabBtn.addEventListener("click", () => {
-          panelState.viewTab = t.id;
-          renderPanel();
-        });
-        tabGroup.append(tabBtn);
-      }
-    }
-
-    const titleEl = element(doc, "h2", { id: "ctpo-panel-title" }, [
-      panelState.kind === "clarify" ? "澄清提示词" : "优化结果",
-      panelState.isStreaming ? element(doc, "span", { className: "ctpo-streaming-tag", style: "margin-left: 8px;" }, ["⚡ 生成中..."]) : null,
-    ]);
-
-    const header = element(doc, "div", { className: "ctpo-panel-header", "data-ctpo-drag-handle": "true", tabindex: "0", "aria-label": "拖动预览窗口" }, [
-      titleEl,
-      tabGroup || element(doc, "span"),
-      close,
-    ]);
-
-    const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-${panelState.kind}` });
-    const actions = element(doc, "div", { className: "ctpo-actions ctpo-panel-actions" });
-    panel.append(header, content, actions);
-
-    if (panelState.kind === "preview") renderPreviewContent(content, actions, panelState);
-    else renderClarifyContent(content, actions, panelState);
-
-    state.panelHost.append(panel);
-    applyPanelGeometry(panel, panelState, { preservePosition: panelState.layout?.manual === true });
-    installPanelInteractions(panel, panelState);
-    const firstInput = panel.querySelector("textarea, input, button");
-    firstInput?.focus?.();
-  }
-
-  function renderPreviewContent(panel, actions, panelState) {
-    panel.append(element(doc, "p", { className: "ctpo-hint" }, [
-      panelState.fromHistory
-        ? "这是历史记录预览，不会自动覆盖当前 Composer。"
-        : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
-    ]));
-
-    panel.append(element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
-    panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
-
-    const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
-    panel.append(resultLabel);
-
-    const viewTab = panelState.viewTab || "edit";
-    if (viewTab === "markdown") {
-      const md = renderSimpleMarkdown(doc, panelState.result);
-      md.classList.add("ctpo-panel-result");
-      panel.append(md);
-    } else if (viewTab === "diff") {
-      const diff = renderSimpleDiff(doc, panelState.original, panelState.result);
-      diff.classList.add("ctpo-panel-result");
-      panel.append(diff);
-    } else {
-      const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
-      result.addEventListener("input", () => { panelState.result = result.value; });
-      panel.append(result);
-    }
-
-    const contextCurrent = panelState.context
-      ? isSameComposerContext(panelState.context, panelState.context.element, currentLocationHref(panelState.context.element), panelState.original)
-      : true;
-    if (panelState.context && !contextCurrent) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, ["原 Composer 已变化。为避免覆盖新内容，应用按钮已停用。"]));
-    if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status" }, [panelState.notice]));
-
-    if (panelState.isStreaming) {
-      const stopBtn = actionButton(doc, "停止生成", "stop-stream", { icon: "cancel", kind: "danger" });
-      stopBtn.addEventListener("click", () => {
-        if (panelState.operationId && panelState.operationMethod) {
-          node?.invoke?.(panelState.operationMethod, { operationId: panelState.operationId, cancel: true }).catch?.(() => {});
-        }
-        panelState.isStreaming = false;
-        renderPanel();
-      });
-      actions.append(stopBtn);
-    }
-
-    const apply = actionButton(doc, "应用结果", "apply-preview", { icon: "check", kind: "primary", disabled: Boolean(panelState.context && !contextCurrent) });
-    apply.addEventListener("click", async () => {
-      let target = panelState.context?.element;
-      if (panelState.context) {
-        if (!isSameComposerContext(panelState.context, target, currentLocationHref(target), panelState.original)) {
-          renderPanel();
-          return;
-        }
-      } else {
-        target = currentComposer();
-        if (!target) {
-          panelState.notice = "当前页面没有可用的 Composer。";
-          renderPanel();
-          return;
-        }
-      }
-      replaceInputText(target, panelState.result);
-      try {
-        await persistAccepted({ original: panelState.original, result: panelState.result, clarifications: panelState.clarifications, mode: panelState.mode });
-        closePanel();
-        showToast("已应用优化结果。", "success");
-      } catch (error) {
-        panelState.notice = `结果已应用，但历史保存失败：${error.message}`;
-        renderPanel();
-      }
-    });
-
-    const copy = actionButton(doc, "复制结果", "copy-preview", { icon: "copy" });
-    copy.addEventListener("click", async () => {
-      try {
-        await copyText(panelState.result);
-        await persistAccepted({ original: panelState.original, result: panelState.result, clarifications: panelState.clarifications, mode: panelState.mode });
-        panelState.notice = "已复制，并已按明确接受动作保存历史。";
-        renderPanel();
-      } catch (error) {
-        panelState.notice = error.message;
-        renderPanel();
-      }
-    });
-
-    actions.append(apply, copy, actionButton(doc, "取消", "cancel-preview", { icon: "cancel" }));
-    actions.querySelector('[data-ctpo-action="cancel-preview"]').addEventListener("click", closePanel);
-  }
-
-  function renderClarifyContent(panel, actions, panelState) {
-    panel.append(element(doc, "p", { className: "ctpo-hint" }, [`最多 3 轮，每轮最多 3 个问题。当前第 ${panelState.round} 轮；留空或跳过都可以。`]));
-    panel.append(element(doc, "label", { className: "ctpo-label" }, ["原始提示词"]));
-    panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
-    if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, [panelState.notice]));
-    if (panelState.busy) {
-      panel.append(element(doc, "div", { className: "ctpo-status" }, ["正在判断是否需要澄清……"]));
-    } else if (panelState.questions.length) {
-      const questions = element(doc, "div", { className: "ctpo-question-list" });
-      panelState.questions.forEach((question, index) => {
-        const input = element(doc, "textarea", { "data-ctpo-question-index": index, "aria-label": `澄清问题 ${index + 1}`, placeholder: "可留空或跳过" });
-        questions.append(element(doc, "div", { className: "ctpo-question" }, [element(doc, "p", {}, [`${index + 1}. ${question}`]), input]));
-      });
-      panel.append(questions);
-    } else if (panelState.ready) {
-      panel.append(element(doc, "div", { className: "ctpo-status", "data-kind": "success" }, ["模型判断信息已足够。点击“生成预览”继续。"]));
-    }
-    if (!panelState.busy && panelState.questions.length) {
-      const submitLabel = panelState.round >= 3 ? "提交回答并生成预览" : "提交回答";
-      const submit = actionButton(doc, submitLabel, "submit-clarify", { icon: "check", kind: "primary" });
-      submit.addEventListener("click", () => submitClarification(panelState));
-      actions.append(submit);
-      const skip = actionButton(doc, "跳过并生成预览", "skip-clarify", { icon: "cancel" });
-      skip.addEventListener("click", () => generateClarifyResult(panelState));
-      actions.append(skip);
-    }
-    if (!panelState.busy && (panelState.ready || panelState.round >= 3)) {
-      const generate = actionButton(doc, "生成预览", "generate-clarify", { icon: "spark", kind: "primary" });
-      generate.addEventListener("click", () => generateClarifyResult(panelState));
-      actions.append(generate);
-    }
-    const cancel = actionButton(doc, "取消", "cancel-clarify", { icon: "cancel" });
-    cancel.addEventListener("click", closePanel);
-    actions.append(cancel);
-  }
-
-  async function runClarifyRound(panelState) {
-    if (state.disposed || state.panel !== panelState) return;
-    const operationId = makeId("clarify");
-    panelState.operationId = operationId;
-    panelState.operationMethod = "clarify-round";
-    panelState.busy = true;
-    state.activeOperations.set(operationId, { id: operationId, method: "clarify-round", context: panelState.context });
-    renderPanel();
-    try {
-      const response = await callNode("clarify-round", {
-        operationId,
-        text: panelState.original,
-        round: panelState.round,
-        clarifications: panelState.answers,
-      });
-      if (state.panel !== panelState) return;
-      panelState.questions = Array.isArray(response.questions) ? response.questions.slice(0, 3) : [];
-      panelState.ready = response.readyToGenerate === true;
-      panelState.busy = false;
-      panelState.operationId = null;
-      panelState.operationMethod = null;
-      renderPanel();
-    } catch (error) {
-      if (state.panel !== panelState) return;
-      panelState.busy = false;
-      panelState.operationId = null;
-      panelState.operationMethod = null;
-      if (error.code !== "cancelled") panelState.notice = error.message;
-      renderPanel();
-    } finally {
-      state.activeOperations.delete(operationId);
-    }
-  }
-
-  function collectClarificationAnswers(panelState) {
-    return [...state.panelHost.querySelectorAll("[data-ctpo-question-index]")].map((input, index) => ({
-      question: panelState.questions[index] ?? "",
-      answer: input.value ?? "",
-    }));
-  }
-
-  async function submitClarification(panelState) {
-    if (state.panel !== panelState || panelState.busy) return;
-    panelState.answers.push(...collectClarificationAnswers(panelState));
-    if (panelState.round >= 3) {
-      await generateClarifyResult(panelState);
-      return;
-    }
-    panelState.round += 1;
-    panelState.questions = [];
-    panelState.ready = false;
-    await runClarifyRound(panelState);
-  }
-
-  async function generateClarifyResult(panelState) {
-    if (state.panel !== panelState || panelState.busy) return;
-    panelState.answers.push(...collectClarificationAnswers(panelState));
-    panelState.busy = true;
-    const operationId = makeId("clarify-final");
-    panelState.operationId = operationId;
-    panelState.operationMethod = "optimize";
-    state.activeOperations.set(operationId, { id: operationId, method: "optimize", context: panelState.context });
-    renderPanel();
-    try {
-      const response = await callNode("optimize", {
-        operationId,
-        text: panelState.original,
-        clarifications: panelState.answers,
-      });
-      if (state.panel !== panelState) return;
-      showPreview({
-        original: panelState.original,
-        result: String(response.result ?? "").trim(),
-        clarifications: panelState.answers,
-        mode: "clarify",
-        context: panelState.context,
-        layout: panelState.layout,
-      });
-    } catch (error) {
-      if (state.panel !== panelState) return;
-      panelState.busy = false;
-      panelState.operationId = null;
-      panelState.operationMethod = null;
-      if (error.code !== "cancelled") panelState.notice = error.message;
-      renderPanel();
-    } finally {
-      state.activeOperations.delete(operationId);
-    }
-  }
-
-  async function copyText(text) {
-    if (!text) return;
-    const view = doc.defaultView;
-    if (view?.navigator?.clipboard?.writeText) {
-      await view.navigator.clipboard.writeText(text);
-      return;
-    }
-    const temp = element(doc, "textarea", {
-      value: text,
-      style: "position: fixed; left: -9999px; top: -9999px; opacity: 0;",
-    });
-    doc.body.append(temp);
-    temp.select?.();
-    try {
-      doc.execCommand("copy");
-    } finally {
-      temp.remove();
-    }
-  }
-
-  const loadSettings = async () => {
-    if (!node) return;
-    try {
-      const [settingsRes, historyRes] = await Promise.all([
-        callNode("load-settings"),
-        callNode("list-history"),
-      ]);
-      state.settings = { ...RENDERER_DEFAULTS, ...settingsRes.settings };
-      state.history = Array.isArray(historyRes.entries) ? historyRes.entries : [];
-      state.ready = true;
-      refreshSettingsViews();
-      scheduleScan();
-    } catch (error) {
-      setNotice(`加载配置失败：${error.message}`, "error");
-    }
-  };
-
-  const onDocumentKeyDown = (event) => {
-    if (event.key === "Escape") {
-      if (state.composerMenu) {
-        closeComposerMenu();
-        return;
-      }
-      if (state.settingsDialog) {
-        closeSettingsDialog({ restoreFocus: true });
-        return;
-      }
-    }
-  };
-
-  const onDocumentPointerDown = (event) => {
-    hideCustomTooltip();
-    if (state.composerMenu && !state.composerMenu.element?.contains?.(event.target)) {
-      closeComposerMenu();
-    }
-  };
-
-  const closeSettingsDialog = ({ restoreFocus = false } = {}) => {
-    const dialog = state.settingsDialog;
-    if (!dialog) return;
+  const closeSettingsDialog = ({ restoreFocus = true } = {}) => {
+    if (!state.settingsDialog) return;
+    const { backdrop, cleanup, returnFocus } = state.settingsDialog;
     state.settingsDialog = null;
-    dialog.cleanup?.();
-    dialog.backdrop.remove();
-    if (restoreFocus && dialog.returnFocus?.focus) {
-      dialog.returnFocus.focus();
-    }
+    cleanup?.();
+    backdrop.remove();
+    if (restoreFocus && returnFocus?.focus) returnFocus.focus();
   };
 
   const openSettingsDialog = ({ focusHistory = false } = {}) => {
-    closeComposerMenu();
-    if (state.settingsDialog) {
-      closeSettingsDialog();
-    }
+    if (state.settingsDialog) closeSettingsDialog({ restoreFocus: false });
     const returnFocus = doc.activeElement;
     const backdrop = element(doc, "div", {
       className: "ctpo-settings-dialog-backdrop",
@@ -2689,121 +2595,145 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     const content = element(doc, "div", { className: "ctpo-settings-dialog-content" });
     dialog.append(header, content);
     backdrop.append(dialog);
-    state.settingsDialogHost?.append(backdrop);
+    uiRoot.append(backdrop);
+
     const cleanup = buildSettingsView(content, { embedded: true });
     state.settingsDialog = { backdrop, cleanup, returnFocus };
     backdrop.addEventListener("pointerdown", (event) => {
       if (event.target === backdrop) closeSettingsDialog({ restoreFocus: true });
     });
-    const history = focusHistory
-      ? content.querySelector?.('[data-ctpo-settings-section="history"]')
-      : null;
+
+    const history = focusHistory ? content.querySelector?.('[data-ctpo-settings-section="history"]') : null;
     if (history) history.scrollIntoView?.({ block: "start" });
     else close.focus?.();
   };
 
   const openSettings = ({ focusHistory = false } = {}) => {
-    closeComposerMenu();
-    if (!focusHistory && typeof settingsRegistration?.open === "function") {
-      try {
-        settingsRegistration.open();
-        return;
-      } catch (error) {
-        setNotice(`原生设置页不可用，已打开包内设置：${error.message}`, "error");
+    if (typeof settingsRegistration?.open === "function") {
+      settingsRegistration.open();
+      if (focusHistory) {
+        setTimeout(() => {
+          const history = doc.querySelector?.('[data-ctpo-settings-section="history"]');
+          history?.scrollIntoView?.({ block: "start" });
+        }, 30);
       }
+      return;
     }
     openSettingsDialog({ focusHistory });
   };
 
-  const registerSettings = () => {
-    const register = ui?.settingsSections?.register;
-    if (typeof register !== "function") return;
-    try {
-      const registration = register({
-        apiVersion: 1,
-        id: "prompt-optimizer",
-        title: "提示词优化",
-        group: "personal",
-        icon: "personalization",
-        mount: buildSettingsView,
-      });
-      settingsRegistration = typeof registration === "function" ? { unregister: registration } : registration;
-    } catch (error) {
-      setNotice(`设置页注册失败：${error.message}`, "error");
+  const onDocumentPointerDown = (event) => {
+    if (state.composerMenu && !state.composerMenu.element.contains(event.target) && !state.composerMenu.entry?.menuButton?.contains(event.target)) {
+      closeComposerMenu();
     }
   };
+  doc.addEventListener("pointerdown", onDocumentPointerDown, true);
 
-  const cleanup = () => {
-    if (state.disposed) return;
-    state.disposed = true;
-    state.observer?.disconnect?.();
-    if (state.scanTimer) clearTimeout(state.scanTimer);
-    if (state.scanRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(state.scanRaf);
-    if (state.toastTimer) clearTimeout(state.toastTimer);
-    if (typeof state.chunkUnsubscribe === "function") state.chunkUnsubscribe();
-    doc.defaultView?.removeEventListener("resize", reflowPanel);
-    doc.defaultView?.removeEventListener("resize", reflowComposerButtons);
-    doc.removeEventListener("scroll", reflowPanel, true);
-    doc.removeEventListener("scroll", reflowComposerButtons, true);
-    doc.removeEventListener("keydown", onDocumentKeyDown);
-    doc.removeEventListener("pointerdown", onDocumentPointerDown, true);
-    doc.removeEventListener("pointerover", onDocumentPointerOver, true);
-    doc.removeEventListener("pointerout", onDocumentPointerOut, true);
-    hideCustomTooltip();
-    state.toastTimer = null;
-    for (const entry of [...state.attached.values()]) detachComposer(entry);
-    for (const operation of state.activeOperations.values()) {
-      node?.invoke?.(operation.method, { operationId: operation.id, cancel: true }).catch?.(() => {});
-    }
-    state.activeOperations.clear();
-    closeComposerMenu();
-    closeSettingsDialog();
-    settingsRegistration?.unregister?.();
-    settingsRegistration?.dispose?.();
-    clearPanelInteractions();
-    state.panelHost.replaceChildren();
-    state.uiRoot.remove();
-    root.removeAttribute(ROOT_ATTRIBUTE);
+  const reflowPanel = () => {
+    if (!state.panel || state.disposed) return;
+    const panel = panelHost.querySelector?.(".ctpo-panel");
+    if (!panel) return;
+    applyPanelGeometry(panel, state.panel, { preservePosition: state.panel.layout?.manual === true });
   };
 
-  doc.defaultView?.addEventListener("resize", reflowPanel);
-  doc.defaultView?.addEventListener("resize", reflowComposerButtons);
   doc.addEventListener("scroll", reflowPanel, true);
   doc.addEventListener("scroll", reflowComposerButtons, true);
-  doc.addEventListener("keydown", onDocumentKeyDown);
-  doc.addEventListener("pointerdown", onDocumentPointerDown, true);
-  doc.addEventListener("pointerover", onDocumentPointerOver, true);
-  doc.addEventListener("pointerout", onDocumentPointerOut, true);
-  state.observer = new MutationObserver((records) => {
-    if (records.some(({ target }) => !uiRoot.contains(target))) scheduleScan();
+  doc.defaultView?.addEventListener("resize", reflowPanel);
+  doc.defaultView?.addEventListener("resize", reflowComposerButtons);
+
+  // MutationObserver with requestAnimationFrame throttling
+  let observerRaf = null;
+  const observer = new MutationObserver((records) => {
+    if (state.disposed) return;
+    if (records.some(({ target }) => !uiRoot.contains(target))) {
+      if (observerRaf) cancelAnimationFrame(observerRaf);
+      observerRaf = requestAnimationFrame(() => {
+        observerRaf = null;
+        scheduleScan();
+      });
+    }
   });
-  state.observer.observe(doc.body ?? root, {
+
+  observer.observe(doc.body || doc.documentElement, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: [
       "aria-expanded",
       "aria-hidden",
-      "aria-label",
-      "aria-haspopup",
       "class",
-      "data-composer-placement",
       "data-open",
       "data-state",
-      "data-testid",
       "hidden",
-      "role",
       "style",
-      "title",
     ],
   });
-  registerSettings();
-  if (typeof onCleanup === "function") {
-    onCleanup(cleanup);
-    state.cleanupRegistered = true;
-  }
-  void loadSettings();
-  return { dispose: cleanup };
-}
 
-export { RENDERER_DEFAULTS };
+  // Streaming chunk listener from Node RPC
+  let chunkUnsubscribe = null;
+  if (typeof node?.on === "function") {
+    chunkUnsubscribe = node.on("optimizer-chunk", ({ operationId, delta, accumulated, isDone }) => {
+      if (state.panel && state.panel.kind === "preview") {
+        state.panel.result = accumulated;
+        if (isDone) {
+          state.panel.isStreaming = false;
+        }
+        const resultTextarea = panelHost.querySelector("#ctpo-preview-result");
+        if (resultTextarea && resultTextarea.value !== accumulated) {
+          resultTextarea.value = accumulated;
+        } else {
+          renderPanel();
+        }
+      }
+    });
+  }
+
+  // Load initial settings and history
+  (async () => {
+    try {
+      const s = await callNode("load-settings");
+      state.settings = { ...RENDERER_DEFAULTS, ...(s.settings ?? {}) };
+      const h = await callNode("list-history");
+      state.history = Array.isArray(h.entries) ? h.entries : [];
+      refreshSettingsViews();
+      scheduleScan();
+    } catch {
+      scheduleScan();
+    }
+  })();
+
+  const settingsRegistration = ui?.registerSettingsPane?.({
+    title: "提示词优化",
+    render: (container) => buildSettingsView(container, { embedded: false }),
+  });
+
+  const dispose = () => {
+    state.disposed = true;
+    if (state.scanTimer) clearTimeout(state.scanTimer);
+    if (state.scanRaf) cancelAnimationFrame(state.scanRaf);
+    if (observerRaf) cancelAnimationFrame(observerRaf);
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+    if (toastTimer) clearTimeout(toastTimer);
+    observer.disconnect();
+    doc.removeEventListener("pointerover", onGlobalPointerOver, true);
+    doc.removeEventListener("pointerout", onGlobalPointerOut, true);
+    doc.removeEventListener("pointerdown", onGlobalPointerDown, true);
+    doc.removeEventListener("pointerdown", onDocumentPointerDown, true);
+    doc.removeEventListener("scroll", reflowPanel, true);
+    doc.removeEventListener("scroll", reflowComposerButtons, true);
+    doc.defaultView?.removeEventListener("resize", reflowPanel);
+    doc.defaultView?.removeEventListener("resize", reflowComposerButtons);
+    if (typeof chunkUnsubscribe === "function") chunkUnsubscribe();
+    if (typeof settingsRegistration?.unregister === "function") settingsRegistration.unregister();
+    else if (typeof settingsRegistration?.dispose === "function") settingsRegistration.dispose();
+    closePanel();
+    closeComposerMenu();
+    closeSettingsDialog({ restoreFocus: false });
+    for (const entry of [...state.attached.values()]) detachComposer(entry);
+    uiRoot.remove();
+  };
+
+  if (typeof onCleanup === "function") onCleanup(dispose);
+
+  return { dispose, scheduleScan };
+}
