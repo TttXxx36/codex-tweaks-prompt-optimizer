@@ -662,4 +662,54 @@ test("renderer provides batch operations for history items and collapsible diagn
   assert.match(css, /\.ctpo-debug-guide/);
 });
 
+test("implements segmented button group with 0 gap and 22px upward menu offset", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const btnSource = await readFile(new URL("../src/ui/composer-button.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+  assert.match(source, /entry\.button\.getBoundingClientRect\?\.\(\)\?\.width/);
+  assert.match(btnSource, /entry\.button\.getBoundingClientRect\?\.\(\)\?\.width/);
+  assert.match(source, /- height - 22/);
+  assert.match(btnSource, /- height - 22/);
+  assert.match(css, /border-radius:\s*7px\s+0\s+0\s+7px;/);
+  assert.match(css, /border-radius:\s*0\s+7px\s+7px\s+0;/);
+});
+
+test("computeDiffStats accurately computes additions and deletions count", async () => {
+  const { computeDiffStats } = await import("../src/ui/dom.js");
+  const stats1 = computeDiffStats("hello world", "hello brave new world");
+  assert.equal(stats1.addCount >= 2, true);
+  assert.equal(stats1.delCount, 0);
+
+  const stats2 = computeDiffStats("优化前的长句子", "优化后的简短句子");
+  assert.equal(stats2.addCount > 0, true);
+  assert.equal(stats2.delCount > 0, true);
+});
+
+test("implements resizable splitter, font slider, shortcuts, and history save-as-preset", async () => {
+  const source = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  const previewSource = await readFile(new URL("../src/ui/preview-panel.js", import.meta.url), "utf8");
+  const settingsSource = await readFile(new URL("../src/ui/settings-view.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+
+  // Splitter & Font size
+  assert.match(source, /ctpo-panel-splitter/);
+  assert.match(previewSource, /ctpo-panel-splitter/);
+  assert.match(source, /--ctpo-preview-font-size/);
+  assert.match(previewSource, /--ctpo-preview-font-size/);
+  assert.match(css, /ctpo-panel-splitter/);
+  assert.match(css, /--ctpo-preview-font-size/);
+
+  // Settings font slider & shortcuts
+  assert.match(settingsSource, /预览框字体大小/);
+  assert.match(settingsSource, /启用快捷键一键优化/);
+  assert.match(source, /onGlobalKeyDown/);
+  assert.match(source, /event\.shiftKey && \(event\.key === "O" \|\| event\.key === "o"\)/);
+
+  // History save as preset
+  assert.match(source, /save-as-preset/);
+  assert.match(settingsSource, /save-as-preset/);
+  assert.match(settingsSource, /另存为场景预设/);
+});
+
+
 

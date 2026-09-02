@@ -156,7 +156,7 @@ export class ComposerButtonManager {
     if (left + width > viewport.width - 8) {
       left = Math.max(8, (Number(triggerRect?.right) || width + 8) - width);
     }
-    let top = (Number(triggerRect?.top) || 0) - height - 12;
+    let top = (Number(triggerRect?.top) || 0) - height - 22;
     if (top < 8) {
       top = Math.min((Number(triggerRect?.bottom) || 0) + 12, viewport.height - height - 8);
     }
@@ -308,7 +308,7 @@ export class ComposerButtonManager {
       height: Number(anchorRect.height) || 0,
     };
 
-    const btnW = 68;
+    const btnW = Math.round(entry.button.getBoundingClientRect?.()?.width || entry.button.offsetWidth || 58);
     entry.button.style.left = `${position.left}px`;
     entry.button.style.top = `${position.top}px`;
     entry.button.hidden = false;

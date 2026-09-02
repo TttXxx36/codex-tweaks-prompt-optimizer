@@ -39,6 +39,7 @@ export function renderHistoryList(doc, {
   onBatchPin,
   onBatchDelete,
   onPreviewHistory,
+  onSavePreset,
   onNotice,
 }) {
   listContainer.replaceChildren();
@@ -288,6 +289,38 @@ export function renderHistoryList(doc, {
       onPreviewHistory?.(entry);
     });
 
+    const savePresetBtn = element(doc, "button", {
+      type: "button",
+      className: "ctpo-button",
+      "data-ctpo-action": "save-as-preset",
+      "data-ctpo-tooltip": "将此条优化结果保存为场景预设",
+      textContent: "存为预设",
+    });
+    savePresetBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showModalDialog(doc, {
+        title: "另存为场景预设",
+        message: "请输入新场景预设名称（优化结果将作为预设指令保存）：",
+        showInput: true,
+        inputPlaceholder: "例如：代码重构、SQL优化、长文润色",
+        initialValue: entry.original ? (entry.original.slice(0, 10).trim() || "自定义预设") : "自定义预设",
+        confirmText: "保存预设",
+        onConfirm: async (presetName) => {
+          if (!presetName?.trim()) return;
+          try {
+            await onSavePreset?.({
+              id: `preset-${Date.now()}`,
+              name: presetName.trim(),
+              instruction: entry.result,
+            });
+            onNotice?.(`已成功保存为【${presetName.trim()}】场景预设！`, "success");
+          } catch (error) {
+            onNotice?.(error.message, "error");
+          }
+        },
+      });
+    });
+
     const delBtn = element(doc, "button", {
       type: "button",
       className: "ctpo-button ctpo-button-danger",
@@ -317,6 +350,7 @@ export function renderHistoryList(doc, {
               onBatchPin,
               onBatchDelete,
               onPreviewHistory,
+              onSavePreset,
               onNotice,
             });
           } catch (error) {
@@ -328,6 +362,7 @@ export function renderHistoryList(doc, {
 
     const actions = element(doc, "div", { className: "ctpo-actions ctpo-history-item-actions" }, [
       pinBtn,
+      savePresetBtn,
       previewBtn,
       delBtn,
     ]);
@@ -435,7 +470,42 @@ export function buildSettingsView(container, {
       state.settings.streaming = streamSwitch.checked;
     });
     streamLabel.append(streamCopy, streamSwitch);
-    generalCard.append(switchLabel, streamLabel);
+
+    const fontRow = element(doc, "div", { className: "ctpo-switch-row", style: "margin-top: 8px;" });
+    const fontCopy = element(doc, "span", {}, [
+      element(doc, "span", { className: "ctpo-label" }, ["预览框字体大小"]),
+      element(doc, "span", { className: "ctpo-hint" }, ["调整提示词预览面板及对比界面的字体大小（12px ~ 20px 自由调节）。"]),
+    ]);
+    const fontValBadge = element(doc, "span", { className: "ctpo-pinned-badge", style: "font-size: 12px; margin-left: 8px;" }, [`${settings.previewFontSize || 14}px`]);
+    const fontSlider = element(doc, "input", {
+      type: "range",
+      min: "12",
+      max: "20",
+      step: "1",
+      value: String(settings.previewFontSize || 14),
+      style: "width: 130px; cursor: pointer; accent-color: var(--ctpo-accent);",
+      "aria-label": "预览框字体大小",
+    });
+    fontSlider.addEventListener("input", () => {
+      const val = Number(fontSlider.value) || 14;
+      fontValBadge.textContent = `${val}px`;
+      state.settings.previewFontSize = val;
+    });
+    const fontControl = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px;" }, [fontSlider, fontValBadge]);
+    fontRow.append(fontCopy, fontControl);
+
+    const shortcutLabel = element(doc, "label", { className: "ctpo-switch-row", style: "margin-top: 8px;" });
+    const shortcutCopy = element(doc, "span", {}, [
+      element(doc, "span", { className: "ctpo-label" }, ["启用快捷键一键优化 (Ctrl+Shift+O / Cmd+Shift+O)"]),
+      element(doc, "span", { className: "ctpo-hint" }, ["在输入框中按下快捷键可直接一键触发提示词优化。"]),
+    ]);
+    const shortcutSwitch = element(doc, "input", { type: "checkbox", className: "ctpo-switch", role: "switch", "aria-label": "启用快捷键一键优化", checked: settings.enableShortcut !== false });
+    shortcutSwitch.addEventListener("change", () => {
+      state.settings.enableShortcut = shortcutSwitch.checked;
+    });
+    shortcutLabel.append(shortcutCopy, shortcutSwitch);
+
+    generalCard.append(switchLabel, streamLabel, fontRow, shortcutLabel);
 
     // Card 2: Provider 档案管理
     const profiles = Array.isArray(settings.profiles) && settings.profiles.length ? settings.profiles : [
@@ -922,6 +992,10 @@ export function buildSettingsView(container, {
               fromHistory: true,
             });
           },
+          onSavePreset: async (preset) => {
+            const res = await callNode("save-preset", { preset });
+            state.settings = { ...state.settings, ...res.settings };
+          },
           onNotice: (msg, kind) => setInlineNotice(msg, kind),
         });
       }, 150);
@@ -965,6 +1039,10 @@ export function buildSettingsView(container, {
           context: null,
           fromHistory: true,
         });
+      },
+      onSavePreset: async (preset) => {
+        const res = await callNode("save-preset", { preset });
+        state.settings = { ...state.settings, ...res.settings };
       },
       onNotice: (msg, kind) => setInlineNotice(msg, kind),
     });

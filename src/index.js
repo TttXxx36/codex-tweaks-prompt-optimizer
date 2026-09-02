@@ -40,6 +40,9 @@ export const RENDERER_DEFAULTS = {
   profiles: [],
   activePresetId: "general",
   presets: [],
+  previewFontSize: 14,
+  enableShortcut: true,
+  previewSplitRatio: 0.4,
 };
 
 const MODE_OPTIONS = [
@@ -440,6 +443,23 @@ export function computeLcsDiff(tokens1, tokens2) {
   const diff = [];
   myersLinear(a, 0, n, b, 0, m, pool, diff, vf, vb);
   return diff;
+}
+
+export function computeDiffStats(original, result) {
+  const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);
+  const t1 = tokenize(original);
+  const t2 = tokenize(result);
+  const diff = computeLcsDiff(t1, t2);
+  let addCount = 0;
+  let delCount = 0;
+  for (const item of diff) {
+    if (item.type === "add") {
+      if (item.text.trim().length) addCount++;
+    } else if (item.type === "del") {
+      if (item.text.trim().length) delCount++;
+    }
+  }
+  return { addCount, delCount };
 }
 
 export function renderSimpleDiff(doc, original, result) {
@@ -979,7 +999,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       height: Number(anchorRect.height) || 0,
     };
 
-    const btnW = 68;
+    const btnW = Math.round(entry.button.getBoundingClientRect?.()?.width || entry.button.offsetWidth || 58);
     entry.button.style.left = `${position.left}px`;
     entry.button.style.top = `${position.top}px`;
     entry.button.hidden = false;
@@ -1286,7 +1306,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     if (left + width > viewport.width - 8) {
       left = Math.max(8, (Number(triggerRect?.right) || width + 8) - width);
     }
-    let top = (Number(triggerRect?.top) || 0) - height - 12;
+    let top = (Number(triggerRect?.top) || 0) - height - 22;
     if (top < 8) {
       top = Math.min((Number(triggerRect?.bottom) || 0) + 12, viewport.height - height - 8);
     }
@@ -1486,6 +1506,24 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
           event.preventDefault();
           applyBtn.click();
         }
+      } else if ((event.ctrlKey || event.metaKey) && (event.key === "s" || event.key === "S")) {
+        const copyBtn = panel.querySelector('[data-ctpo-action="copy-preview"]');
+        if (copyBtn) {
+          event.preventDefault();
+          copyBtn.click();
+        }
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "1") {
+        event.preventDefault();
+        panelState.viewTab = "edit";
+        renderPanel();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "2") {
+        event.preventDefault();
+        panelState.viewTab = "markdown";
+        renderPanel();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "3") {
+        event.preventDefault();
+        panelState.viewTab = "diff";
+        renderPanel();
       }
     });
 
@@ -1545,32 +1583,112 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const renderPreviewContent = (panel, actions, panelState) => {
+    const fontSize = state.settings.previewFontSize || 14;
+    if (typeof panel.style?.setProperty === "function") {
+      panel.style.setProperty("--ctpo-preview-font-size", `${fontSize}px`);
+    }
+
     panel.append(element(doc, "p", { className: "ctpo-hint" }, [
       panelState.fromHistory
         ? "这是历史记录预览，不会自动覆盖当前 Composer。"
         : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
     ]));
 
-    panel.append(element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
-    panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
+    const splitContainer = element(doc, "div", { className: "ctpo-panel-preview" });
 
-    const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
-    panel.append(resultLabel);
+    // Left Column: Source
+    const sourceCol = element(doc, "div", { className: "ctpo-panel-col-source" });
+    const ratio = Math.max(0.2, Math.min(0.8, panelState.splitRatio ?? state.settings.previewSplitRatio ?? 0.4));
+    sourceCol.style.flex = `0 0 ${Math.round(ratio * 100)}%`;
 
+    const sourceLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]);
+    const sourceContent = element(doc, "div", { className: "ctpo-source" }, [panelState.original]);
+    sourceCol.append(sourceLabel, sourceContent);
+
+    // Center Column: Splitter
+    const splitter = element(doc, "div", {
+      className: "ctpo-panel-splitter",
+      "data-ctpo-tooltip": "按住拖拽调节左右宽度（双击复位 40:60）",
+    });
+
+    splitter.addEventListener("dblclick", () => {
+      panelState.splitRatio = 0.4;
+      state.settings.previewSplitRatio = 0.4;
+      sourceCol.style.flex = "0 0 40%";
+      callNode("save-settings", { settings: { ...state.settings, previewSplitRatio: 0.4 } }).catch(() => {});
+    });
+
+    const onSplitterDown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      splitter.dataset.dragging = "true";
+      const containerRect = splitContainer.getBoundingClientRect?.();
+      const view = doc.defaultView;
+      if (!containerRect || !view) return;
+
+      const onSplitterMove = (moveEvt) => {
+        const offset = moveEvt.clientX - containerRect.left;
+        const totalW = containerRect.width;
+        if (totalW < 300) return;
+        let newRatio = offset / totalW;
+        const minSourceRatio = 180 / totalW;
+        const maxSourceRatio = 1 - (240 / totalW);
+        newRatio = Math.max(minSourceRatio, Math.min(maxSourceRatio, newRatio));
+        panelState.splitRatio = Number(newRatio.toFixed(3));
+        state.settings.previewSplitRatio = panelState.splitRatio;
+        sourceCol.style.flex = `0 0 ${Math.round(newRatio * 100)}%`;
+      };
+
+      const onSplitterUp = () => {
+        splitter.dataset.dragging = "false";
+        view.removeEventListener("pointermove", onSplitterMove);
+        view.removeEventListener("pointerup", onSplitterUp);
+        view.removeEventListener("pointercancel", onSplitterUp);
+        callNode("save-settings", { settings: { ...state.settings, previewSplitRatio: panelState.splitRatio } }).catch(() => {});
+      };
+
+      view.addEventListener("pointermove", onSplitterMove);
+      view.addEventListener("pointerup", onSplitterUp);
+      view.addEventListener("pointercancel", onSplitterUp);
+    };
+    splitter.addEventListener("pointerdown", onSplitterDown);
+
+    // Right Column: Result / Markdown / Diff
+    const resultCol = element(doc, "div", { className: "ctpo-panel-col-result" });
     const viewTab = panelState.viewTab || "edit";
+
+    let statsBadge = null;
+    if (viewTab === "diff") {
+      const { addCount, delCount } = computeDiffStats(panelState.original, panelState.result);
+      statsBadge = element(doc, "span", { className: "ctpo-diff-stats" }, [
+        addCount > 0 ? element(doc, "span", { className: "ctpo-diff-badge-add" }, [`+${addCount} 词`]) : null,
+        delCount > 0 ? element(doc, "span", { className: "ctpo-diff-badge-del" }, [`-${delCount} 词`]) : null,
+      ]);
+    }
+
+    const resultLabel = element(doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, [
+      element(doc, "span", {}, ["优化结果"]),
+      statsBadge,
+    ]);
+    resultCol.append(resultLabel);
+
     if (viewTab === "markdown") {
       const md = renderSimpleMarkdown(doc, panelState.result);
       md.classList.add("ctpo-panel-result");
-      panel.append(md);
+      resultCol.append(md);
     } else if (viewTab === "diff") {
       const diff = renderSimpleDiff(doc, panelState.original, panelState.result);
       diff.classList.add("ctpo-panel-result");
-      panel.append(diff);
+      resultCol.append(diff);
     } else {
       const result = element(doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
       result.addEventListener("input", () => { panelState.result = result.value; });
-      panel.append(result);
+      resultCol.append(result);
     }
+
+    splitContainer.append(sourceCol, splitter, resultCol);
+    panel.append(splitContainer);
 
     const contextCurrent = panelState.context
       ? isSameComposerContext(panelState.context, panelState.context.element, currentLocationHref(panelState.context.element), panelState.original)
@@ -2112,6 +2230,42 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         });
       });
 
+      const savePresetBtn = element(doc, "button", {
+        type: "button",
+        className: "ctpo-button",
+        "data-ctpo-action": "save-as-preset",
+        "data-ctpo-tooltip": "将此条优化结果保存为场景预设",
+        textContent: "存为预设",
+      });
+      savePresetBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showModalDialog({
+          doc,
+          title: "另存为场景预设",
+          message: "请输入新场景预设名称（优化结果将作为预设指令保存）：",
+          showInput: true,
+          inputPlaceholder: "例如：代码重构、SQL优化、长文润色",
+          initialValue: entry.original ? (entry.original.slice(0, 10).trim() || "自定义预设") : "自定义预设",
+          confirmText: "保存预设",
+          onConfirm: async (presetName) => {
+            if (!presetName?.trim()) return;
+            try {
+              const res = await callNode("save-preset", {
+                preset: {
+                  id: `preset-${Date.now()}`,
+                  name: presetName.trim(),
+                  instruction: entry.result,
+                },
+              });
+              state.settings = { ...state.settings, ...res.settings };
+              setNotice(`已成功保存为【${presetName.trim()}】场景预设！`, "success");
+            } catch (error) {
+              setNotice(error.message, "error");
+            }
+          },
+        });
+      });
+
       const delBtn = actionButton(doc, "删除", "history-delete", { icon: "trash", kind: "danger" });
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -2136,6 +2290,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
 
       const actions = element(doc, "div", { className: "ctpo-actions ctpo-history-item-actions" }, [
         pinBtn,
+        savePresetBtn,
         previewBtn,
         delBtn,
       ]);
@@ -2225,7 +2380,42 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         state.settings.streaming = streamSwitch.checked;
       });
       streamLabel.append(streamCopy, streamSwitch);
-      generalCard.append(switchLabel, streamLabel);
+
+      const fontRow = element(doc, "div", { className: "ctpo-switch-row", style: "margin-top: 8px;" });
+      const fontCopy = element(doc, "span", {}, [
+        element(doc, "span", { className: "ctpo-label" }, ["预览框字体大小"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["调整提示词预览面板及对比界面的字体大小（12px ~ 20px 自由调节）。"]),
+      ]);
+      const fontValBadge = element(doc, "span", { className: "ctpo-pinned-badge", style: "font-size: 12px; margin-left: 8px;" }, [`${settings.previewFontSize || 14}px`]);
+      const fontSlider = element(doc, "input", {
+        type: "range",
+        min: "12",
+        max: "20",
+        step: "1",
+        value: String(settings.previewFontSize || 14),
+        style: "width: 130px; cursor: pointer; accent-color: var(--ctpo-accent);",
+        "aria-label": "预览框字体大小",
+      });
+      fontSlider.addEventListener("input", () => {
+        const val = Number(fontSlider.value) || 14;
+        fontValBadge.textContent = `${val}px`;
+        state.settings.previewFontSize = val;
+      });
+      const fontControl = element(doc, "div", { className: "ctpo-inline", style: "gap: 8px;" }, [fontSlider, fontValBadge]);
+      fontRow.append(fontCopy, fontControl);
+
+      const shortcutLabel = element(doc, "label", { className: "ctpo-switch-row", style: "margin-top: 8px;" });
+      const shortcutCopy = element(doc, "span", {}, [
+        element(doc, "span", { className: "ctpo-label" }, ["启用快捷键一键优化 (Ctrl+Shift+O / Cmd+Shift+O)"]),
+        element(doc, "span", { className: "ctpo-hint" }, ["在输入框中按下快捷键可直接一键触发提示词优化。"]),
+      ]);
+      const shortcutSwitch = element(doc, "input", { type: "checkbox", className: "ctpo-switch", role: "switch", "aria-label": "启用快捷键一键优化", checked: settings.enableShortcut !== false });
+      shortcutSwitch.addEventListener("change", () => {
+        state.settings.enableShortcut = shortcutSwitch.checked;
+      });
+      shortcutLabel.append(shortcutCopy, shortcutSwitch);
+
+      generalCard.append(switchLabel, streamLabel, fontRow, shortcutLabel);
 
       // Card 2: Provider 档案管理
       const profiles = Array.isArray(settings.profiles) && settings.profiles.length ? settings.profiles : [
@@ -3010,6 +3200,23 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     render: (container) => buildSettingsView(container, { embedded: false }),
   });
 
+  const onGlobalKeyDown = (event) => {
+    if (state.disposed) return;
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === "O" || event.key === "o")) {
+      if (state.settings.enableShortcut !== false) {
+        event.preventDefault();
+        const best = findBestComposer(doc);
+        if (best) {
+          const entry = state.attached.get(best);
+          if (entry && !entry.busy) {
+            startOptimization(entry);
+          }
+        }
+      }
+    }
+  };
+  doc.addEventListener("keydown", onGlobalKeyDown, true);
+
   const dispose = () => {
     state.disposed = true;
     if (state.scanTimer) clearTimeout(state.scanTimer);
@@ -3022,6 +3229,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
     doc.removeEventListener("pointerout", onGlobalPointerOut, true);
     doc.removeEventListener("pointerdown", onGlobalPointerDown, true);
     doc.removeEventListener("pointerdown", onDocumentPointerDown, true);
+    doc.removeEventListener("keydown", onGlobalKeyDown, true);
     doc.removeEventListener("scroll", reflowPanel, true);
     doc.removeEventListener("scroll", reflowComposerButtons, true);
     doc.defaultView?.removeEventListener("resize", reflowPanel);

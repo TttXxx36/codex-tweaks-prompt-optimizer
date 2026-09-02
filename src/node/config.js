@@ -102,6 +102,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   profiles: [DEFAULT_PROFILE],
   activePresetId: "general",
   presets: DEFAULT_PROMPT_PRESETS,
+  previewFontSize: 14,
+  enableShortcut: true,
+  previewSplitRatio: 0.4,
 });
 
 export function asTrimmedString(value, fallback = "") {
@@ -260,6 +263,14 @@ export function normalizeSettings(input = {}, existing = DEFAULT_SETTINGS) {
     ? boundedText(asTrimmedString(source.instruction, activePreset?.instruction || DEFAULT_INSTRUCTION), MAX_INPUT_CHARS, "系统指令")
     : (activePreset?.instruction || previous.instruction || DEFAULT_INSTRUCTION);
 
+  const rawFontSize = Number(source.previewFontSize ?? previous.previewFontSize ?? 14);
+  const previewFontSize = Number.isFinite(rawFontSize) ? Math.min(20, Math.max(12, Math.round(rawFontSize))) : 14;
+
+  const enableShortcut = typeof source.enableShortcut === "boolean" ? source.enableShortcut : (previous.enableShortcut !== false);
+
+  const rawSplitRatio = Number(source.previewSplitRatio ?? previous.previewSplitRatio ?? 0.4);
+  const previewSplitRatio = Number.isFinite(rawSplitRatio) ? Math.min(0.8, Math.max(0.2, Number(rawSplitRatio.toFixed(2)))) : 0.4;
+
   return {
     schemaVersion: SCHEMA_VERSION,
     enabled: typeof source.enabled === "boolean" ? source.enabled : previous.enabled,
@@ -276,6 +287,9 @@ export function normalizeSettings(input = {}, existing = DEFAULT_SETTINGS) {
     profiles,
     activePresetId,
     presets,
+    previewFontSize,
+    enableShortcut,
+    previewSplitRatio,
   };
 }
 

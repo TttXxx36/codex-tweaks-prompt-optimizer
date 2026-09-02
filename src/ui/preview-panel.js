@@ -1,6 +1,6 @@
 import { ROOT_ATTRIBUTE, isSameComposerContext, replaceInputText, currentLocationHref } from "../renderer-core.js";
 import { findPanelPosition, normalizePanelSize, PANEL_DEFAULT_WIDTH, PANEL_DEFAULT_HEIGHT } from "../panel-geometry.js";
-import { actionButton, copyText, element, renderSimpleDiff, renderSimpleMarkdown, svgIcon } from "./dom.js";
+import { actionButton, copyText, element, computeDiffStats, renderSimpleDiff, renderSimpleMarkdown, svgIcon } from "./dom.js";
 
 export function createPanelLayout(layout = {}) {
   return {
@@ -54,6 +54,8 @@ export class PreviewPanelController {
     uiRoot,
     viewportSize,
     node,
+    getSettings,
+    onUpdateSettings,
     onToast,
     onPersistAccepted,
     getCurrentComposer,
@@ -63,6 +65,8 @@ export class PreviewPanelController {
     this.uiRoot = uiRoot;
     this.viewportSize = viewportSize;
     this.node = node;
+    this.getSettings = getSettings;
+    this.onUpdateSettings = onUpdateSettings;
     this.onToast = onToast;
     this.onPersistAccepted = onPersistAccepted;
     this.getCurrentComposer = getCurrentComposer;
@@ -305,6 +309,24 @@ export class PreviewPanelController {
           event.preventDefault();
           applyBtn.click();
         }
+      } else if ((event.ctrlKey || event.metaKey) && (event.key === "s" || event.key === "S")) {
+        const copyBtn = panel.querySelector('[data-ctpo-action="copy-preview"]');
+        if (copyBtn) {
+          event.preventDefault();
+          copyBtn.click();
+        }
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "1") {
+        event.preventDefault();
+        panelState.viewTab = "edit";
+        this.render();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "2") {
+        event.preventDefault();
+        panelState.viewTab = "markdown";
+        this.render();
+      } else if ((event.ctrlKey || event.metaKey) && event.key === "3") {
+        event.preventDefault();
+        panelState.viewTab = "diff";
+        this.render();
       }
     });
 
@@ -364,32 +386,115 @@ export class PreviewPanelController {
   }
 
   renderPreviewContent(panel, actions, panelState) {
+    const settings = this.getSettings?.() || {};
+    const fontSize = settings.previewFontSize || 14;
+    if (typeof panel.style?.setProperty === "function") {
+      panel.style.setProperty("--ctpo-preview-font-size", `${fontSize}px`);
+    }
+
     panel.append(element(this.doc, "p", { className: "ctpo-hint" }, [
       panelState.fromHistory
         ? "这是历史记录预览，不会自动覆盖当前 Composer。"
         : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
     ]));
 
-    panel.append(element(this.doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]));
-    panel.append(element(this.doc, "div", { className: "ctpo-source" }, [panelState.original]));
+    const splitContainer = element(this.doc, "div", { className: "ctpo-panel-preview" });
 
-    const resultLabel = element(this.doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, ["优化结果"]);
-    panel.append(resultLabel);
+    // Left Column: Source
+    const sourceCol = element(this.doc, "div", { className: "ctpo-panel-col-source" });
+    const ratio = Math.max(0.2, Math.min(0.8, panelState.splitRatio ?? 0.4));
+    sourceCol.style.flex = `0 0 ${Math.round(ratio * 100)}%`;
 
+    const sourceLabel = element(this.doc, "label", { className: "ctpo-label ctpo-panel-source-label" }, ["原始提示词"]);
+    const sourceContent = element(this.doc, "div", { className: "ctpo-source" }, [panelState.original]);
+    sourceCol.append(sourceLabel, sourceContent);
+
+    // Center Column: Splitter
+    const splitter = element(this.doc, "div", {
+      className: "ctpo-panel-splitter",
+      "data-ctpo-tooltip": "按住拖拽调节左右宽度（双击复位 40:60）",
+    });
+
+    splitter.addEventListener("dblclick", () => {
+      panelState.splitRatio = 0.4;
+      sourceCol.style.flex = "0 0 40%";
+      if (typeof this.onUpdateSettings === "function") {
+        this.onUpdateSettings({ previewSplitRatio: 0.4 });
+      }
+    });
+
+    const onSplitterDown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      splitter.dataset.dragging = "true";
+      const containerRect = splitContainer.getBoundingClientRect?.();
+      const view = this.doc.defaultView;
+      if (!containerRect || !view) return;
+
+      const onSplitterMove = (moveEvt) => {
+        const offset = moveEvt.clientX - containerRect.left;
+        const totalW = containerRect.width;
+        if (totalW < 300) return;
+        let newRatio = offset / totalW;
+        const minSourceRatio = 180 / totalW;
+        const maxSourceRatio = 1 - (240 / totalW);
+        newRatio = Math.max(minSourceRatio, Math.min(maxSourceRatio, newRatio));
+        panelState.splitRatio = Number(newRatio.toFixed(3));
+        sourceCol.style.flex = `0 0 ${Math.round(newRatio * 100)}%`;
+      };
+
+      const onSplitterUp = () => {
+        splitter.dataset.dragging = "false";
+        view.removeEventListener("pointermove", onSplitterMove);
+        view.removeEventListener("pointerup", onSplitterUp);
+        view.removeEventListener("pointercancel", onSplitterUp);
+        if (typeof this.onUpdateSettings === "function") {
+          this.onUpdateSettings({ previewSplitRatio: panelState.splitRatio });
+        }
+      };
+
+      view.addEventListener("pointermove", onSplitterMove);
+      view.addEventListener("pointerup", onSplitterUp);
+      view.addEventListener("pointercancel", onSplitterUp);
+    };
+    splitter.addEventListener("pointerdown", onSplitterDown);
+
+    // Right Column: Result / Markdown / Diff
+    const resultCol = element(this.doc, "div", { className: "ctpo-panel-col-result" });
     const viewTab = panelState.viewTab || "edit";
+
+    let statsBadge = null;
+    if (viewTab === "diff") {
+      const { addCount, delCount } = computeDiffStats(panelState.original, panelState.result);
+      statsBadge = element(this.doc, "span", { className: "ctpo-diff-stats" }, [
+        addCount > 0 ? element(this.doc, "span", { className: "ctpo-diff-badge-add" }, [`+${addCount} 词`]) : null,
+        delCount > 0 ? element(this.doc, "span", { className: "ctpo-diff-badge-del" }, [`-${delCount} 词`]) : null,
+      ]);
+    }
+
+    const resultLabel = element(this.doc, "label", { className: "ctpo-label ctpo-panel-result-label", for: "ctpo-preview-result" }, [
+      element(this.doc, "span", {}, ["优化结果"]),
+      statsBadge,
+    ]);
+    resultCol.append(resultLabel);
+
     if (viewTab === "markdown") {
       const md = renderSimpleMarkdown(this.doc, panelState.result);
       md.classList.add("ctpo-panel-result");
-      panel.append(md);
+      resultCol.append(md);
     } else if (viewTab === "diff") {
       const diff = renderSimpleDiff(this.doc, panelState.original, panelState.result);
       diff.classList.add("ctpo-panel-result");
-      panel.append(diff);
+      resultCol.append(diff);
     } else {
       const result = element(this.doc, "textarea", { id: "ctpo-preview-result", className: "ctpo-panel-result", "aria-label": "可编辑的优化结果" }, [panelState.result]);
       result.addEventListener("input", () => { panelState.result = result.value; });
-      panel.append(result);
+      resultCol.append(result);
     }
+
+    splitContainer.append(sourceCol, splitter, resultCol);
+    panel.append(splitContainer);
 
     const contextCurrent = panelState.context
       ? isSameComposerContext(panelState.context, panelState.context.element, currentLocationHref(panelState.context.element), panelState.original)

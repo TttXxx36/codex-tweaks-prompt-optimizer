@@ -433,6 +433,23 @@ export function computeLcsDiff(tokens1, tokens2) {
   return diff;
 }
 
+export function computeDiffStats(original, result) {
+  const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);
+  const t1 = tokenize(original);
+  const t2 = tokenize(result);
+  const diff = computeLcsDiff(t1, t2);
+  let addCount = 0;
+  let delCount = 0;
+  for (const item of diff) {
+    if (item.type === "add") {
+      if (item.text.trim().length) addCount++;
+    } else if (item.type === "del") {
+      if (item.text.trim().length) delCount++;
+    }
+  }
+  return { addCount, delCount };
+}
+
 export function renderSimpleDiff(doc, original, result) {
   const container = element(doc, "div", { className: "ctpo-diff-container" });
   const tokenize = (str) => String(str ?? "").split(/(\s+|[，。！？、；：""''（）\n\r]+|[.,!?;:()]+)/g).filter(Boolean);

@@ -55,6 +55,9 @@ export function redactSettings(settings) {
     })),
     activePresetId: normalized.activePresetId,
     presets: normalized.presets,
+    previewFontSize: normalized.previewFontSize,
+    enableShortcut: normalized.enableShortcut,
+    previewSplitRatio: normalized.previewSplitRatio,
   };
 }
 
