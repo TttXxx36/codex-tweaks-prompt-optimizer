@@ -219,7 +219,7 @@ test("keeps an empty Composer in every mode beside its model picker, not its pro
   }
 });
 
-test("anchors the optimizer immediately before the Composer context window", () => {
+test("anchors the optimizer to the model picker when both model picker and context window exist", () => {
   const composerShell = new FakeElement("section", { "data-composer-placement": "home" });
   const contextWindow = new FakeElement("button", {
     role: "button",
@@ -239,7 +239,7 @@ test("anchors the optimizer immediately before the Composer context window", () 
     return [];
   };
 
-  assert.equal(findComposerActionAnchor(composer), contextWindow);
+  assert.equal(findComposerActionAnchor(composer), modelPicker);
 });
 
 test("falls back to the model picker when the Composer context window is closed", () => {
@@ -312,7 +312,7 @@ test("does not use a portaled Composer overlay command as the initial model anch
   assert.equal(findComposerActionAnchor(composer), modelPicker);
 });
 
-test("keeps a context control in the Composer footer portal as the preferred anchor", () => {
+test("prefers modelPicker in the Composer as the primary anchor over contextWindow", () => {
   const footer = new FakeElement("section", { "data-thread-scroll-footer": "true" });
   const portal = new FakeElement("div", { "data-above-composer-portal": "true" });
   const contextWindow = new FakeElement("button", { role: "button", "aria-label": "Context window" });
@@ -332,16 +332,11 @@ test("keeps a context control in the Composer footer portal as the preferred anc
   };
 
   assert.equal(findComposerRegion(composer), footer);
-  assert.equal(findComposerActionAnchor(composer), contextWindow);
+  assert.equal(findComposerActionAnchor(composer), modelPicker);
 });
 
-test("uses only a same-conversation above-Composer portal outside the local shell", () => {
+test("falls back to context window when model picker is not present", () => {
   const composerShell = new FakeElement("section", { "data-composer-placement": "chatgpt" });
-  const modelPicker = new FakeElement("button", {
-    role: "button",
-    "aria-haspopup": "listbox",
-    "aria-label": "5.6 Terra",
-  });
   const composer = new FakeElement("textarea", {
     "data-conversation-id": "conversation-7",
     placeholder: "Message",
@@ -353,9 +348,8 @@ test("uses only a same-conversation above-Composer portal outside the local shel
   });
   const contextWindow = new FakeElement("button", { role: "button", "aria-label": "Context window" });
   portal.append(contextWindow);
-  composerShell.append(modelPicker, composer);
+  composerShell.append(composer);
   composerShell.querySelectorAll = (selector) => {
-    if (selector.includes("button") || selector.includes("[aria-haspopup]")) return [modelPicker];
     return [];
   };
   portal.querySelectorAll = (selector) => selector.includes("button") ? [contextWindow] : [];

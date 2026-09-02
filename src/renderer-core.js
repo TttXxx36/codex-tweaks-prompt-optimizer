@@ -413,13 +413,14 @@ function isReusableComposerAnchor(anchor) {
 }
 
 export function findComposerActionAnchor(composer, previousAnchor = null) {
-  const contextWindow = findComposerContextWindow(composer);
-  if (contextWindow?.parentElement) return contextWindow;
   if (isReusableComposerAnchor(previousAnchor)) return previousAnchor;
   const modelPicker = findModelPicker(composer);
   if (modelPicker?.parentElement) return modelPicker;
   const submitControl = findComposerControl(composer, "button, [role=button]", isComposerSubmitControl);
-  return submitControl?.parentElement ? submitControl : null;
+  if (submitControl?.parentElement) return submitControl;
+  const contextWindow = findComposerContextWindow(composer);
+  if (contextWindow?.parentElement) return contextWindow;
+  return null;
 }
 
 export function getComposerButtonPosition(anchorRect, buttonRect = {}, viewport = {}, gap = 24) {

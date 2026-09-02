@@ -175,18 +175,54 @@ export function parseClarificationJson(value) {
     error.code = "invalid_clarification_shape";
     throw error;
   }
-  if (parsed.questions.length > 3 || parsed.questions.some((question) => typeof question !== "string" || !question.trim())) {
+  if (parsed.questions.length > 3) {
     const error = new Error("澄清响应的问题数量或格式无效，请重试");
     error.code = "invalid_clarification_questions";
     throw error;
   }
-  const questions = parsed.questions.map((question) => boundedText(question.trim(), 4_000, "澄清问题"));
+  const questions = parsed.questions.map((q) => {
+    if (typeof q === "string" && q.trim()) {
+      return boundedText(q.trim(), 4_000, "澄清问题");
+    }
+    if (isPlainObject(q) && typeof q.question === "string" && q.question.trim()) {
+      const qText = boundedText(q.question.trim(), 4_000, "澄清问题");
+      const isMulti = Boolean(q.isMultiSelect);
+      const rawOptions = Array.isArray(q.options) ? q.options : [];
+      const options = rawOptions.map((opt) => {
+        if (typeof opt === "string" && opt.trim()) {
+          const isRec = opt.startsWith("(推荐)") || opt.startsWith("(Recommended)");
+          return { label: opt.trim(), description: "", recommended: isRec };
+        }
+        if (isPlainObject(opt) && typeof opt.label === "string" && opt.label.trim()) {
+          return {
+            label: opt.label.trim(),
+            description: typeof opt.description === "string" ? opt.description.trim() : "",
+            recommended: Boolean(opt.recommended) || opt.label.startsWith("(推荐)") || opt.label.startsWith("(Recommended)"),
+          };
+        }
+        return null;
+      }).filter(Boolean).slice(0, 6);
+      return {
+        question: qText,
+        isMultiSelect: isMulti,
+        options,
+      };
+    }
+    const error = new Error("澄清响应的问题数量或格式无效，请重试");
+    error.code = "invalid_clarification_questions";
+    throw error;
+  });
+
   if (!parsed.readyToGenerate && questions.length === 0) {
     const error = new Error("澄清响应在未就绪时必须包含问题，请重试");
     error.code = "invalid_clarification_questions";
     throw error;
   }
-  return { questions, readyToGenerate: parsed.readyToGenerate };
+  const result = { questions, readyToGenerate: parsed.readyToGenerate };
+  if (typeof parsed.prompt === "string" && parsed.prompt.trim()) {
+    result.prompt = parsed.prompt.trim();
+  }
+  return result;
 }
 
 export function collectModelIds(body) {

@@ -293,7 +293,7 @@ export class ComposerButtonManager {
       return;
     }
 
-    const position = getComposerButtonPosition(anchorRect, combinedButtonRect, this.viewportSize(), 6);
+    const position = getComposerButtonPosition(anchorRect, combinedButtonRect, this.viewportSize(), 36);
     if (!position) {
       entry.button.hidden = true;
       if (entry.menuButton) entry.menuButton.hidden = true;

@@ -717,3 +717,40 @@ test("supports pinning history entries to prevent FIFO eviction", async () => {
     await rm(dataDirectory, { recursive: true, force: true });
   }
 });
+
+test("parses Grill-me structured clarification questions with options and recommended flags", () => {
+  const payload = JSON.stringify({
+    questions: [
+      {
+        question: "请问该功能的使用场景是？",
+        isMultiSelect: false,
+        options: [
+          { label: "(推荐) 前端渲染优化", description: "聚焦 DOM 与重排减少", recommended: true },
+          { label: "后端接口调优", description: "聚焦网络与并发处理", recommended: false }
+        ]
+      },
+      {
+        question: "需要支持哪些平台？",
+        isMultiSelect: true,
+        options: ["(推荐) Windows", "macOS", "Linux"]
+      }
+    ],
+    readyToGenerate: false
+  });
+
+  const parsed = parseClarificationJson(payload);
+  assert.equal(parsed.readyToGenerate, false);
+  assert.equal(parsed.questions.length, 2);
+
+  assert.equal(parsed.questions[0].question, "请问该功能的使用场景是？");
+  assert.equal(parsed.questions[0].isMultiSelect, false);
+  assert.equal(parsed.questions[0].options.length, 2);
+  assert.equal(parsed.questions[0].options[0].recommended, true);
+
+  assert.equal(parsed.questions[1].question, "需要支持哪些平台？");
+  assert.equal(parsed.questions[1].isMultiSelect, true);
+  assert.equal(parsed.questions[1].options.length, 3);
+  assert.equal(parsed.questions[1].options[0].recommended, true);
+  assert.equal(parsed.questions[1].options[1].recommended, false);
+});
+

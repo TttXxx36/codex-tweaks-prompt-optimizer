@@ -983,7 +983,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       return;
     }
 
-    const position = getComposerButtonPosition(anchorRect, combinedButtonRect, viewportSize(), 6);
+    const position = getComposerButtonPosition(anchorRect, combinedButtonRect, viewportSize(), 36);
     if (!position) {
       entry.button.hidden = true;
       if (entry.menuButton) entry.menuButton.hidden = true;
@@ -1565,7 +1565,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       close,
     ]);
 
-    const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-${panelState.kind}` });
+    const content = element(doc, "div", { className: `ctpo-panel-content ctpo-panel-body-${panelState.kind}` });
     const actions = element(doc, "div", { className: "ctpo-actions ctpo-panel-actions" });
     panel.append(header, content, actions);
 
@@ -1594,7 +1594,7 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
         : (panelState.isStreaming ? "正在实时生成优化提示词……" : "检查并编辑结果后，再决定是否应用 (快捷键 Ctrl+Enter 快速应用)。"),
     ]));
 
-    const splitContainer = element(doc, "div", { className: "ctpo-panel-preview" });
+    const splitContainer = element(doc, "div", { className: "ctpo-panel-preview ctpo-panel-split-layout" });
 
     // Left Column: Source
     const sourceCol = element(doc, "div", { className: "ctpo-panel-col-source" });
@@ -1757,24 +1757,98 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const renderClarifyContent = (panel, actions, panelState) => {
-    panel.append(element(doc, "p", { className: "ctpo-hint" }, [`最多 3 轮，每轮最多 3 个问题。当前第 ${panelState.round} 轮；留空或跳过都可以。`]));
+    panel.append(element(doc, "p", { className: "ctpo-hint" }, [`第 ${panelState.round}/3 轮需求拷问与澄清（Grill-me 风格）。勾选推荐选项或直接填写补充：`]));
     panel.append(element(doc, "label", { className: "ctpo-label" }, ["原始提示词"]));
     panel.append(element(doc, "div", { className: "ctpo-source" }, [panelState.original]));
     if (panelState.notice) panel.append(element(doc, "div", { className: "ctpo-status", role: "alert", "data-kind": "error" }, [panelState.notice]));
+
     if (panelState.busy) {
-      panel.append(element(doc, "div", { className: "ctpo-status" }, ["正在判断是否需要澄清……"]));
+      panel.append(element(doc, "div", { className: "ctpo-status" }, ["正在深度分析提示词并生成澄清问题……"]));
     } else if (panelState.questions.length) {
-      const questions = element(doc, "div", { className: "ctpo-question-list" });
-      panelState.questions.forEach((question, index) => {
-        const input = element(doc, "textarea", { "data-ctpo-question-index": index, "aria-label": `澄清问题 ${index + 1}`, placeholder: "可留空或跳过" });
-        questions.append(element(doc, "div", { className: "ctpo-question" }, [element(doc, "p", {}, [`${index + 1}. ${question}`]), input]));
+      const questionsList = element(doc, "div", { className: "ctpo-question-list" });
+      panelState.questions.forEach((qObj, index) => {
+        const qText = typeof qObj === "string" ? qObj : qObj.question;
+        const isMulti = typeof qObj === "object" && Boolean(qObj.isMultiSelect);
+        const options = (typeof qObj === "object" && Array.isArray(qObj.options)) ? qObj.options : [];
+
+        const questionCard = element(doc, "div", { className: "ctpo-question-card" });
+
+        const typeBadge = element(doc, "span", { className: "ctpo-question-badge" }, [isMulti ? "多选" : "单选"]);
+        const qTitle = element(doc, "div", { className: "ctpo-question-title" }, [
+          element(doc, "span", { className: "ctpo-question-index" }, [`${index + 1}.`]),
+          element(doc, "span", { className: "ctpo-question-text" }, [qText]),
+          typeBadge,
+        ]);
+        questionCard.append(qTitle);
+
+        if (options.length > 0) {
+          const optionsContainer = element(doc, "div", { className: "ctpo-options-grid" });
+          options.forEach((opt, optIdx) => {
+            const optLabel = typeof opt === "string" ? opt : opt.label;
+            const optDesc = typeof opt === "object" ? opt.description : "";
+            const isRec = typeof opt === "object" ? opt.recommended : (optLabel.startsWith("(推荐)") || optLabel.startsWith("(Recommended)"));
+
+            const inputType = isMulti ? "checkbox" : "radio";
+            const optInput = element(doc, "input", {
+              type: inputType,
+              name: `ctpo-q-${index}`,
+              id: `ctpo-q-${index}-opt-${optIdx}`,
+              className: "ctpo-option-input",
+            });
+
+            const optCard = element(doc, "label", {
+              htmlFor: `ctpo-q-${index}-opt-${optIdx}`,
+              className: "ctpo-option-card",
+            });
+
+            const checkIndicator = element(doc, "span", { className: `ctpo-indicator ctpo-indicator-${inputType}` });
+            const optContent = element(doc, "div", { className: "ctpo-option-content" });
+
+            const cleanLabel = optLabel.replace(/^\((?:推荐|Recommended)\)\s*/i, "");
+            const labelRow = element(doc, "div", { className: "ctpo-option-label" }, [
+              isRec ? element(doc, "span", { className: "ctpo-rec-badge" }, ["推荐"]) : null,
+              element(doc, "span", {}, [cleanLabel]),
+            ]);
+            optContent.append(labelRow);
+
+            if (optDesc) {
+              const descRow = element(doc, "div", { className: "ctpo-option-desc" }, [optDesc]);
+              optContent.append(descRow);
+            }
+
+            optInput.addEventListener("change", () => {
+              if (!isMulti) {
+                optionsContainer.querySelectorAll(".ctpo-option-card").forEach((c) => c.removeAttribute("data-checked"));
+              }
+              if (optInput.checked) {
+                optCard.setAttribute("data-checked", "true");
+              } else {
+                optCard.removeAttribute("data-checked");
+              }
+            });
+
+            optCard.append(optInput, checkIndicator, optContent);
+            optionsContainer.append(optCard);
+          });
+          questionCard.append(optionsContainer);
+        }
+
+        const customInput = element(doc, "textarea", {
+          "data-ctpo-question-index": index,
+          className: "ctpo-question-custom-input",
+          "aria-label": `问题 ${index + 1} 补充说明`,
+          placeholder: options.length > 0 ? "（可选）填写补充说明或自定义要求..." : "可留空或跳过",
+          rows: "2",
+        });
+        questionCard.append(customInput);
+        questionsList.append(questionCard);
       });
-      panel.append(questions);
+      panel.append(questionsList);
     } else if (panelState.ready) {
       panel.append(element(doc, "div", { className: "ctpo-status", "data-kind": "success" }, ["模型判断信息已足够。点击“生成预览”继续。"]));
     }
     if (!panelState.busy && panelState.questions.length) {
-      const submitLabel = panelState.round >= 3 ? "提交回答并生成预览" : "提交回答";
+      const submitLabel = panelState.round >= 3 ? "提交回答并生成预览" : "提交回答并继续";
       const submit = actionButton(doc, submitLabel, "submit-clarify", { icon: "check", kind: "primary" });
       submit.addEventListener("click", () => submitClarification(panelState));
       actions.append(submit);
@@ -1813,6 +1887,17 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
       panelState.busy = false;
       panelState.operationId = null;
       panelState.operationMethod = null;
+      if (panelState.ready && typeof response.prompt === "string" && response.prompt.trim()) {
+        showPreview({
+          original: panelState.original,
+          result: response.prompt.trim(),
+          clarifications: panelState.answers,
+          mode: "clarify",
+          context: panelState.context,
+          isStreaming: false,
+        });
+        return;
+      }
       renderPanel();
     } catch (error) {
       if (state.panel !== panelState) return;
@@ -1827,10 +1912,33 @@ export function activate({ root, onCleanup, api: _api, ui, node } = {}) {
   };
 
   const collectClarificationAnswers = (panelState) => {
-    return [...panelHost.querySelectorAll("[data-ctpo-question-index]")].map((input, index) => ({
-      question: panelState.questions[index] ?? "",
-      answer: input.value ?? "",
-    }));
+    return panelState.questions.map((qObj, index) => {
+      const qText = typeof qObj === "string" ? qObj : qObj.question;
+      const options = (typeof qObj === "object" && Array.isArray(qObj.options)) ? qObj.options : [];
+
+      const selectedOptions = [];
+      const checkedInputs = panelHost.querySelectorAll(`input[name="ctpo-q-${index}"]:checked`);
+      checkedInputs.forEach((inp) => {
+        const optIdx = parseInt(inp.id.split("-opt-")[1], 10);
+        if (!isNaN(optIdx) && options[optIdx]) {
+          const opt = options[optIdx];
+          selectedOptions.push(typeof opt === "string" ? opt : opt.label);
+        }
+      });
+
+      const customInput = panelHost.querySelector(`textarea[data-ctpo-question-index="${index}"]`);
+      const customText = customInput?.value?.trim() || "";
+
+      const parts = [];
+      if (selectedOptions.length > 0) {
+        parts.push(`【选择】${selectedOptions.join("、")}`);
+      }
+      if (customText) {
+        parts.push(`【补充】${customText}`);
+      }
+      const finalAnswer = parts.join("； ");
+      return { question: qText, answer: finalAnswer };
+    });
   };
 
   const submitClarification = async (panelState) => {
